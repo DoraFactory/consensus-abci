@@ -43,7 +43,8 @@ impl Engine {
         }
     }
 
-    pub async fn run(&mut self, mut rx_output: Receiver<i32>) -> eyre::Result<()> {
+    // pub async fn run(&mut self, mut rx_output: Receiver<u64>) -> eyre::Result<()> {
+    pub async fn run(&mut self, mut rx_output: Receiver<u64>) -> eyre::Result<()> {
         self.init_chain()?;
         
         loop {
@@ -67,27 +68,33 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_count(&mut self, count: i32) -> eyre::Result<()> {
+    fn handle_count(&mut self, count: u64) -> eyre::Result<()> {
         // increment block
         let proposed_block_height = self.last_block_height + 1;
 
         self.last_block_height = proposed_block_height;
 
+        println!("开始进行begin block");
         self.begin_block(proposed_block_height)?;
 
+        println!("开始进行aggrement tx");
         self.aggrement_tx(count)?;
 
+        println!("开始进行end block");
         self.end_block(proposed_block_height)?;
 
+        println!("开始进行commit block");
         self.commit()?;
 
         Ok(())
     }
 
 
-    fn aggrement_tx(&mut self, count: i32) -> eyre::Result<()> {
-        let bytes = parse_int_to_bytes(count).unwrap();
-        self.deliver_tx(bytes)
+    //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
+    fn aggrement_tx(&mut self, count: u64) -> eyre::Result<()> {
+        // let bytes = parse_int_to_bytes(count).unwrap();
+        println!("开始进行deliver tx");
+        self.deliver_tx(count)
     }
 
 
@@ -180,8 +187,11 @@ impl Engine {
     }
 
     /// Calls the `DeliverTx` hook on the ABCI app.
-    fn deliver_tx(&mut self, tx: [u8;8]) -> eyre::Result<()> {
-        self.client.deliver_tx(RequestDeliverTx { tx: tx.to_vec() })?;
+    fn deliver_tx(&mut self, tx: u64) -> eyre::Result<()> {
+        // println!("deliver的交易传入为:{:?}", tx);
+        // let tx_req = parse_int_to_bytes(tx).unwrap();
+        
+        self.client.deliver_tx(RequestDeliverTx { tx: counter_to_bytes(tx).to_vec() })?;
         Ok(())
     }
 
@@ -202,16 +212,8 @@ impl Engine {
     }
 }
 
-pub fn parse_int_to_bytes(count: i32) -> Result<[u8; 8], ()>{
-    let num: i32 = 42;
-    let bytes: [u8; 8] = {
-        let mut arr = [0u8; 8];
-        let num_bytes = num.to_le_bytes();
-        arr[..4].copy_from_slice(&num_bytes);
-        arr[4..].copy_from_slice(&num_bytes);
-        arr
-    };
-    Ok(bytes)
+pub fn counter_to_bytes(counter: u64) -> [u8; 8] {
+    counter.to_be_bytes()
 }
 
 

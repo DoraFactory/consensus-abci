@@ -4,14 +4,14 @@ async fn main() {
 
     let client = reqwest::Client::new();
 
-    let tx: u64 = 1;
+    let tx: u64 = 2;
 
     let response = client
-        .get(format!("{}/abci_query", host))
-        // 查询的就是AbciQueryQuery的data和path部分
-        .query(&[("data", "counter"), ("path", "")])
+        .get(format!("{}/broadcast_tx", host))
+        .query(&[("tx", tx)])
         .send()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     println!("send tx response is {:?}", response);
 }

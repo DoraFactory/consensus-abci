@@ -48,8 +48,11 @@ impl Consensus for ConsensusConnection {
     }
 
     async fn deliver_tx(&self, deliver_tx_request: RequestDeliverTx) -> ResponseDeliverTx {
+
+        println!("{:?}", deliver_tx_request.tx.clone());
         let new_counter = parse_bytes_to_counter(&deliver_tx_request.tx);
 
+        println!("我已经成功对新的count进行了解码!");
         if new_counter.is_err() {
             return ResponseDeliverTx {
                 code: 1,
@@ -61,6 +64,9 @@ impl Consensus for ConsensusConnection {
         }
 
         let new_counter = new_counter.unwrap();
+
+        println!("滴滴滴开始输出新的count");
+        println!("{:?}", &new_counter);
 
         let mut current_state_lock = self.current_state.lock().await;
         let mut current_state = current_state_lock.as_mut().unwrap();
@@ -77,7 +83,17 @@ impl Consensus for ConsensusConnection {
 
         current_state.counter = new_counter;
 
-        Default::default()
+        println!("新的count的状态为{:?}", new_counter.clone());
+
+        //TODO: 这个需要修改一下，返回一些详细的信息
+        // Default::default()
+        ResponseDeliverTx{
+            code: 0,
+            codespace: "Validation successfully".to_owned(),
+            log: "Updated the state with new counter".to_owned(),
+            info: "Number has been increased!".to_owned(),
+            ..Default::default()
+        }
     }
 
     async fn end_block(&self, end_block_request: RequestEndBlock) -> ResponseEndBlock {

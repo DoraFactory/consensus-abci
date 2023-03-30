@@ -4,7 +4,7 @@ async fn main() {
 
     let client = reqwest::Client::new();
 
-    let tx = 1;
+    let tx: u64 = 1;
 
     let response = client
         .get(format!("{}/broadcast_tx", host))

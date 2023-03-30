@@ -44,9 +44,9 @@ async fn run() -> Result<()> {
         let abci_client_address = SocketAddr::new(ip, port);
         let client_api = ClientApi::new(abci_client_address, tx_abci_req);
         println!("Startd ABCI client listen on: {:?}", &abci_client_address);
-        warp::serve(client_api.get_routes()).run(abci_client_address).await
+        warp::serve(client_api.get_routes(tx_req)).run(abci_client_address).await
     });
-    
+
 
     // client will connect the server with 26658
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
@@ -55,6 +55,7 @@ async fn run() -> Result<()> {
 
     let mut engine = Engine::new(app_address, rx_abci_queries);
 
+    // engine.run(rx_req).await?;
     engine.run(rx_req).await?;
 
     Ok(())
