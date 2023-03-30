@@ -25,13 +25,6 @@ impl Engine {
         rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
     ) -> Self {
         let mut echo_client = ClientBuilder::default().connect(&app_address).unwrap();
-        println!("Startd ABCI client listen on: {:?}", &app_address);
-        let res = echo_client
-            .echo(RequestEcho {
-                message: "Hello ABCI!".to_string(),
-            }).unwrap();
-        
-        println!("{:?}", res.message);
 
         let last_block_height = echo_client
             .info(RequestInfo::default())
@@ -52,14 +45,21 @@ impl Engine {
 
     pub async fn run(&mut self, mut rx_output: Receiver<i32>) -> eyre::Result<()> {
         self.init_chain()?;
-
+        
         loop {
+            println!("listening and consuming the coming requests....");
             tokio::select! {
                 Some(count) = rx_output.recv() => {
+                    println!("--------------------------------");
+                    println!("send transaction and consensus start...");
+                    println!("--------------------------------");
                     self.handle_count(count)?;
                 },
                 Some((tx_query, req)) = self.rx_abci_queries.recv() => {
+                    println!("query start....");
+                    println!("********************************");
                     self.handle_abci_query(tx_query, req)?;
+                    println!("********************************");
                 }
                 else => break,
             }
@@ -75,7 +75,7 @@ impl Engine {
 
         self.begin_block(proposed_block_height)?;
 
-        // self.aggrement_tx()?;
+        self.aggrement_tx(count)?;
 
         self.end_block(proposed_block_height)?;
 
@@ -83,6 +83,13 @@ impl Engine {
 
         Ok(())
     }
+
+
+    fn aggrement_tx(&mut self, count: i32) -> eyre::Result<()> {
+        let bytes = parse_int_to_bytes(count).unwrap();
+        self.deliver_tx(bytes)
+    }
+
 
     fn handle_abci_query(
         &mut self,
@@ -92,7 +99,7 @@ impl Engine {
         let req_height = req.height.unwrap_or(0);
         let req_prove = req.prove.unwrap_or(false);
 
-        // req_client
+        // abci client call the `query` abci api
         let resp = self.req_client.query(RequestQuery {
             data: req.data.into(),
             path: req.path,
@@ -100,7 +107,33 @@ impl Engine {
             prove: req_prove,
         })?;
 
+        // info test
+/*         let resp = self.req_client.info(RequestInfo {
+            version: Default::default(),
+            block_version: Default::default(),
+            p2p_version: Default::default(),
+        });
+
+        println!("在这里获取查询响应: {:?}", resp.unwrap()); */
+
         // 通过一个单通道单消费者(oneshoter)向用户返回响应结果
+
+        println!("获取的查询响应为: {:?}", resp);
+
+        let resp_key = match std::str::from_utf8(&resp.key) {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
+        };
+        println!("resp key为:{:?}", resp_key);
+
+
+        let resp_value = match std::str::from_utf8(&resp.value) {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
+        };
+
+        println!("resp value为:{:?}", resp_value);
+
         if let Err(err) = tx_query.send(resp) {
             eyre::bail!("{:?}", err);
         }
@@ -114,7 +147,9 @@ impl Engine {
     pub fn init_chain(&mut self) -> eyre::Result<()> {
         let mut client = ClientBuilder::default().connect(&self.app_address)?;
         match client.init_chain(RequestInitChain::default()) {
-            Ok(_) => {}
+            Ok(_) => {
+                println!("Init chain successfully! Hello ABCI.")
+            }
             Err(err) => {
                 // ignore errors about the chain being uninitialized
                 if err.to_string().contains("already initialized") {
@@ -145,8 +180,8 @@ impl Engine {
     }
 
     /// Calls the `DeliverTx` hook on the ABCI app.
-    fn deliver_tx(&mut self, tx: Transaction) -> eyre::Result<()> {
-        self.client.deliver_tx(RequestDeliverTx { tx })?;
+    fn deliver_tx(&mut self, tx: [u8;8]) -> eyre::Result<()> {
+        self.client.deliver_tx(RequestDeliverTx { tx: tx.to_vec() })?;
         Ok(())
     }
 
@@ -167,4 +202,17 @@ impl Engine {
     }
 }
 
-pub type Transaction = Vec<u8>;
+pub fn parse_int_to_bytes(count: i32) -> Result<[u8; 8], ()>{
+    let num: i32 = 42;
+    let bytes: [u8; 8] = {
+        let mut arr = [0u8; 8];
+        let num_bytes = num.to_le_bytes();
+        arr[..4].copy_from_slice(&num_bytes);
+        arr[4..].copy_from_slice(&num_bytes);
+        arr
+    };
+    Ok(bytes)
+}
+
+
+// pub type Transaction = Vec<u8>;

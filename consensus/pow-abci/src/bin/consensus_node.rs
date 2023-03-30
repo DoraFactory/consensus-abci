@@ -43,12 +43,12 @@ async fn run() -> Result<()> {
         let port = 26657;
         let abci_client_address = SocketAddr::new(ip, port);
         let client_api = ClientApi::new(abci_client_address, tx_abci_req);
-
+        println!("Startd ABCI client listen on: {:?}", &abci_client_address);
         warp::serve(client_api.get_routes()).run(abci_client_address).await
     });
     
 
-    // listen 26657 port
+    // client will connect the server with 26658
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
     let port = 26658;
     let app_address = SocketAddr::new(ip, port);

@@ -1,4 +1,4 @@
-use std::{ sync::Arc, time::Duration };
+use std::{ sync::Arc, time::Duration, os::macos::raw::stat };
 use tokio::{sync::Mutex, time::sleep};
 
 use abci::{
@@ -8,6 +8,7 @@ use abci::{
     async_trait,
     types::*,
 };
+use tracing::info;
 
 use crate::CounterState;
 
@@ -129,6 +130,7 @@ pub struct InfoConnection {
 
 impl InfoConnection {
     pub fn new(state: Arc<Mutex<CounterState>>) -> Self {
+        info!("Current State is: {:?}", state);
         Self { state }
     }
 }
@@ -137,15 +139,37 @@ impl InfoConnection {
 impl Info for InfoConnection {
     async fn info(&self, _info_request: RequestInfo) -> ResponseInfo {
         let state = self.state.lock().await;
-
+        info!("-------------This is abci server Info connection response-------------");
         ResponseInfo {
-            data: Default::default(),
+            data: "服务器已经收到您的info消息，现在返回给您一个成功的响应！".to_string(),
             version: Default::default(),
             app_version: Default::default(),
             last_block_height: (*state).block_height,
             last_block_app_hash: (*state).app_hash.clone(),
         }
     }
+
+    async fn query(&self, query_request: RequestQuery) -> ResponseQuery{
+        let state = self.state.lock().await;
+        let key = match std::str::from_utf8(&query_request.data) {
+            Ok(s) => s,
+            Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
+        };
+
+        info!("用户想要查询的是:{:?}",key);
+        ResponseQuery { 
+            code: 0,
+            log: "exists".to_string(),
+            info: "".to_string(),
+            index: 0,
+            key: key.into(),
+            value: (*state).counter.to_string().as_bytes().to_vec(),
+            proof_ops: None,
+            height: (*state).block_height,
+            codespace: "".to_string(),
+        }
+    }
+
 }
 
 
@@ -165,3 +189,4 @@ fn parse_bytes_to_counter(bytes: &[u8]) -> Result<u64, ()> {
 
     Ok(u64::from_be_bytes(counter_bytes))
 }
+

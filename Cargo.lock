@@ -1148,6 +1148,7 @@ dependencies = [
  "futures",
  "hex",
  "log",
+ "reqwest",
  "rocksdb",
  "serde",
  "serde_json",
