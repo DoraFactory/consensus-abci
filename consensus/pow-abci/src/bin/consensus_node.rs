@@ -53,7 +53,9 @@ async fn run() -> Result<()> {
     let port = 26658;
     let app_address = SocketAddr::new(ip, port);
 
-    let mut engine = Engine::new(app_address, rx_abci_queries);
+    let init_app_hash = vec![0];
+
+    let mut engine = Engine::new(app_address, rx_abci_queries, init_app_hash);
 
     // engine.run(rx_req).await?;
     engine.run(rx_req).await?;

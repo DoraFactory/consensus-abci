@@ -7,7 +7,7 @@ use crate::QueryInfo;
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
     RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock, RequestInfo,
-    RequestInitChain, RequestQuery, ResponseQuery,
+    RequestInitChain, RequestQuery, ResponseQuery, Event, EventAttribute
 };
 use tendermint_proto::types::Header;
 
@@ -15,6 +15,7 @@ pub struct Engine {
     pub app_address: SocketAddr,
     pub rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
     pub last_block_height: i64,
+    pub last_app_hash: Vec<u8>,
     pub client: AbciClient,
     pub req_client: AbciClient,
 }
@@ -23,6 +24,7 @@ impl Engine {
     pub fn new(
         app_address: SocketAddr,
         rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
+        last_app_hash: Vec<u8>,
     ) -> Self {
         let mut echo_client = ClientBuilder::default().connect(&app_address).unwrap();
 
@@ -40,6 +42,7 @@ impl Engine {
             last_block_height,
             client,
             req_client,
+            last_app_hash,
         }
     }
 
@@ -53,12 +56,13 @@ impl Engine {
                 Some(count) = rx_output.recv() => {
                     println!("--------------------------------");
                     println!("send transaction and consensus start...");
-                    println!("--------------------------------");
                     self.handle_count(count)?;
+                    println!("--------------------------------");
+
                 },
                 Some((tx_query, req)) = self.rx_abci_queries.recv() => {
-                    println!("query start....");
                     println!("********************************");
+                    println!("query start....");
                     self.handle_abci_query(tx_query, req)?;
                     println!("********************************");
                 }
@@ -74,16 +78,14 @@ impl Engine {
 
         self.last_block_height = proposed_block_height;
 
-        println!("开始进行begin block");
         self.begin_block(proposed_block_height)?;
 
-        println!("开始进行aggrement tx");
         self.aggrement_tx(count)?;
 
-        println!("开始进行end block");
         self.end_block(proposed_block_height)?;
 
-        println!("开始进行commit block");
+        println!("交易发送成功,当前的app hash为:{:?}", self.last_app_hash);
+
         self.commit()?;
 
         Ok(())
@@ -92,8 +94,6 @@ impl Engine {
 
     //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
     fn aggrement_tx(&mut self, count: u64) -> eyre::Result<()> {
-        // let bytes = parse_int_to_bytes(count).unwrap();
-        println!("开始进行deliver tx");
         self.deliver_tx(count)
     }
 
@@ -125,7 +125,7 @@ impl Engine {
 
         // 通过一个单通道单消费者(oneshoter)向用户返回响应结果
 
-        println!("获取的查询响应为: {:?}", resp);
+        println!("the received response is: {:?}", resp);
 
         let resp_key = match std::str::from_utf8(&resp.key) {
             Ok(s) => s,
@@ -176,7 +176,9 @@ impl Engine {
     fn begin_block(&mut self, height: i64) -> eyre::Result<()> {
         let req = RequestBeginBlock {
             header: Some(Header {
-                height,
+                height: self.last_block_height,
+                // current app hash(对于区块链来说，这里是当前最新的区块哈希)
+                app_hash: self.last_app_hash.clone(),
                 ..Default::default()
             }),
             ..Default::default()
@@ -201,7 +203,12 @@ impl Engine {
     // to the App logic on the end of each block.
     fn end_block(&mut self, height: i64) -> eyre::Result<()> {
         let req = RequestEndBlock { height };
-        self.client.end_block(req)?;
+        let resp = self.client.end_block(req)?;
+        
+        // save the ened block hash(app hash) returned by the abci server
+        let event: Event = resp.events.first().unwrap().clone();
+        let event_attribute: EventAttribute = event.attributes.first().unwrap().clone();
+        self.last_app_hash = event_attribute.value.clone();
         Ok(())
     }
 

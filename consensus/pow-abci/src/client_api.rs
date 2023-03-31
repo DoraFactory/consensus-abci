@@ -43,49 +43,16 @@ impl ClientApi<ResponseQuery> {
             .and_then( move |req: BroadcastTx| {
                 let abci_tx = tx_req.clone();
                 async move {
-                    // 打印请求交易的内容tx
                     log::warn!("broadcast_tx: {:?}", req);
     
                     println!("收到了tx请求");
-    
-                    // 创建一个tcpstream，连接的是abci client地址
-    /*                 let stream = TcpStream::connect(self.abci_client_address)
-                        .await
-                        .wrap_err(format!(
-                            "ROUTE_BROADCAST_TX failed to connect to {}",
-                            self.abci_client_address
-                        ))
-                        .unwrap();
-                    let mut transport = Framed::new(stream, LengthDelimitedCodec::new()); */
-    
-                    // print的req tx
                     println!("{:?}", req.tx.clone());
-    
-    /*                 let ans = match req.tx.clone().parse::<u64>() {
-                        Ok(req) => {
-                            if let Err(e) = tx_req.send(req).await {
-                                Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
-                            }else{
-                                Ok::<_, Rejection>(format!("broadcast_tx: {:?}", req))
-                            }
-                        },
-                        Err(_) => {
-                            Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
-                        }
-                    }; */
-    
     
                     if let Err(e) = abci_tx.send(req.tx.clone().parse::<u64>().unwrap()).await {
                         Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
                     }else{
                         Ok::<_, Rejection>(format!("broadcast_tx: {:?}", req))
                     }
-                    // 将req请求通过这个stream发送出去
-    /*                 if let Err(e) = transport.send(req.tx.clone().into()).await {
-                        Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
-                    } else {
-                        Ok::<_, Rejection>(format!("broadcast_tx: {:?}", req))
-                    } */
                 }
             });
 

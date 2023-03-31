@@ -52,7 +52,6 @@ impl Consensus for ConsensusConnection {
         println!("{:?}", deliver_tx_request.tx.clone());
         let new_counter = parse_bytes_to_counter(&deliver_tx_request.tx);
 
-        println!("我已经成功对新的count进行了解码!");
         if new_counter.is_err() {
             return ResponseDeliverTx {
                 code: 1,
@@ -64,9 +63,6 @@ impl Consensus for ConsensusConnection {
         }
 
         let new_counter = new_counter.unwrap();
-
-        println!("滴滴滴开始输出新的count");
-        println!("{:?}", &new_counter);
 
         let mut current_state_lock = self.current_state.lock().await;
         let mut current_state = current_state_lock.as_mut().unwrap();
@@ -103,7 +99,20 @@ impl Consensus for ConsensusConnection {
         current_state.block_height = end_block_request.height;
         current_state.app_hash = current_state.counter.to_be_bytes().to_vec();
 
-        Default::default()
+        // get the current app hash(block hash) return to abci client by the events
+        let event = Event{
+            r#type: "".to_owned(),
+            attributes: vec![EventAttribute{
+                key: "app_hash".as_bytes().to_vec(),
+                value: current_state.app_hash.to_owned(),
+                index: true,
+            }]
+        };
+        // Default::default()
+        ResponseEndBlock{
+            events: vec![event],
+            ..Default::default()
+        }
     }
 
     async fn commit(&self, _commit_request: RequestCommit) -> ResponseCommit {
@@ -157,7 +166,7 @@ impl Info for InfoConnection {
         let state = self.state.lock().await;
         info!("-------------This is abci server Info connection response-------------");
         ResponseInfo {
-            data: "服务器已经收到您的info消息，现在返回给您一个成功的响应！".to_string(),
+            data: "服务器已经收到您的info消息, 现在返回给您一个成功的响应!".to_string(),
             version: Default::default(),
             app_version: Default::default(),
             last_block_height: (*state).block_height,
