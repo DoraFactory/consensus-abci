@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{error::BlockchainError, Block, Txoutput};
+use crate::{error::BlockchainError, blocks::Block, Txoutput};
 
 mod sleddb;
 

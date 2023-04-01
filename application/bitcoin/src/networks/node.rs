@@ -1,16 +1,20 @@
-use std::sync::Arc;
-use futures::StreamExt;
-use libp2p::{Swarm, swarm::SwarmEvent, PeerId};
-use anyhow::Result;
-use tokio::{
-    io::{BufReader, stdin, AsyncBufReadExt}, 
-    sync::mpsc
+use crate::{
+    blocks::Blockchain, Block, BlockchainBehaviour, Commands, Messages, SledDb, Storage,
+    Transaction, UTXOSet, Wallets,
 };
-use tracing::{info, error};
-use crate::{Blockchain, BlockchainBehaviour, Storage, SledDb, UTXOSet, Commands, Messages, Block, Wallets, Transaction};
+use anyhow::{Result, Error};
+use futures::StreamExt;
+use libp2p::{swarm::SwarmEvent, PeerId, Swarm};
+use std::sync::Arc;
+use std::io;
+use tokio::{
+    io::{stdin, AsyncBufReadExt, BufReader},
+    sync::mpsc,
+};
+use tracing::{error, info};
 
-use super::{create_swarm, BLOCK_TOPIC, TRANX_TOPIC, PEER_ID, WALLET_MAP};
-// use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
+use super::{create_swarm, BLOCK_TOPIC, PEER_ID, TRANX_TOPIC, WALLET_MAP};
+use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
 pub struct Node<T = SledDb> {
     bc: Blockchain<T>,
@@ -38,14 +42,17 @@ impl<T: Storage> Node<T> {
     }
 
     async fn sync(&mut self) -> Result<()> {
-        let version = Messages::Version { 
-            best_height: self.bc.get_height(), 
+        let version = Messages::Version {
+            best_height: self.bc.get_height(),
             from_addr: PEER_ID.to_string(),
         };
-        
+
         let line = serde_json::to_vec(&version)?;
-        self.swarm.behaviour_mut().gossipsub
-            .publish(BLOCK_TOPIC.clone(), line).unwrap();
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(BLOCK_TOPIC.clone(), line)
+            .unwrap();
 
         Ok(())
     }
@@ -58,26 +65,37 @@ impl<T: Storage> Node<T> {
 
         let b = Messages::Block { block };
         let line = serde_json::to_vec(&b)?;
-        self.swarm.behaviour_mut().gossipsub
-            .publish(BLOCK_TOPIC.clone(), line).unwrap();        
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(BLOCK_TOPIC.clone(), line)
+            .unwrap();
         Ok(())
     }
 
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
         if self.bc.get_height() > best_height {
-            let blocks = Messages::Blocks { 
+            let blocks = Messages::Blocks {
                 blocks: self.bc.get_blocks(),
                 height: self.bc.get_height(),
                 to_addr: from_addr,
             };
             let msg = serde_json::to_vec(&blocks)?;
-            self.swarm.behaviour_mut().gossipsub
-                .publish(BLOCK_TOPIC.clone(), msg).unwrap();
+            self.swarm
+                .behaviour_mut()
+                .gossipsub
+                .publish(BLOCK_TOPIC.clone(), msg)
+                .unwrap();
         }
         Ok(())
     }
 
-    async fn process_blocks_msg(&mut self, blocks: Vec<Block>, to_addr: String, height: usize) -> Result<()> {
+    async fn process_blocks_msg(
+        &mut self,
+        blocks: Vec<Block>,
+        to_addr: String,
+        height: usize,
+    ) -> Result<()> {
         if PEER_ID.to_string() == to_addr && self.bc.get_height() < height {
             for block in blocks {
                 self.bc.add_block(block)?;
@@ -94,56 +112,26 @@ impl<T: Storage> Node<T> {
         Ok(())
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn create_wallet(&mut self, wallet_name: String) -> Result<()> {
+        WALLET_MAP.lock().await.entry(wallet_name.clone()).or_insert_with(|| {
+            let mut wallets = Wallets::new().unwrap();
+            let addr = wallets.create_wallet();
+            info!("{}'s address is {}", wallet_name, addr);
+            addr
+        });
+        Ok(())
+    }
+
+    pub async fn transfer_tx(&mut self, from: String, to: String, amount: String) -> Result<()> {
+        self.mine_block(&from, &to, amount.parse::<i32>().unwrap()).await?;
+        Ok(())
+    }
+
+    pub async fn start(&mut self, matches: &ArgMatches<'_>) -> Result<()> {
         self.swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
-        let mut stdin = BufReader::new(stdin()).lines();
-        
         loop {
+            self.sync().await;
             tokio::select! {
-                line = stdin.next_line() => { 
-                    let line = line?.expect("stdin closed");
-                    let command = serde_json::from_str(line.as_str());
-                    match command {
-                        Ok(cmd) => match cmd {
-                            Commands::Genesis(addr) => {
-                                if self.bc.get_tip().is_empty() {
-                                    self.bc.create_genesis_block(addr.as_str());
-                                    self.utxos.reindex(&self.bc)?;
-                                    info!("Genesis block was created success!");
-                                }else {
-                                    info!("Already exists blockchain, don't need genesis block!");
-                                    continue;
-                                }
-                            },
-                            Commands::Blocks(_) => {
-                                self.bc.blocks_info();
-                                info!("tip: {}", self.bc.get_tip());
-                                info!("height: {}", self.bc.get_height());
-                            },
-                            Commands::Sync(_) => {
-                               self.sync().await?;
-                            },
-                            Commands::CreateWallet(name) => {
-                                WALLET_MAP.lock().await.entry(name.clone()).or_insert_with(|| {
-                                    let mut wallets = Wallets::new().unwrap();
-                                    let addr = wallets.create_wallet();
-                                    info!("{}'s address is {}", name, addr);
-                                    addr
-                                });
-                            },
-                            Commands::GetAddress(name) => {
-                                info!("{}'s address is {}", name, WALLET_MAP.clone().lock().await.get(&name).unwrap());
-                            },
-                            Commands::Trans{from, to, amount} => {
-                                self.mine_block(&from, &to, amount.parse::<i32>().unwrap()).await?;
-                            },
-                        },
-                        Err(e) => {
-                            error!("Parse command error: {}", e);
-                            continue;
-                        },
-                    }
-                },
                 messages = self.msg_receiver.recv() => {
                     if let Some(msg) = messages {
                         match msg {
@@ -159,9 +147,9 @@ impl<T: Storage> Node<T> {
                         }
                     }
                 },
-                event = self.swarm.select_next_some() => { 
-                    if let SwarmEvent::NewListenAddr { address, .. } = event { 
-                        println!("Listening on {:?}", address); 
+                event = self.swarm.select_next_some() => {
+                    if let SwarmEvent::NewListenAddr { address, .. } = event {
+                        println!("Listening on {:?}", address);
                     }
                 }
             }

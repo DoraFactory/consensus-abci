@@ -9,7 +9,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 use tracing::{info, error};
 
-use crate::Messages;
+use crate::networks::Messages;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = true)]
@@ -50,6 +50,7 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for BlockchainBehaviour {
             GossipsubEvent::Unsubscribed { peer_id, topic} => {
                 info!("Unsubscribe topic: {} with id: {}", topic, peer_id);
             },
+            GossipsubEvent::GossipsubNotSupported { .. } => todo!(),
         }
     }
 }

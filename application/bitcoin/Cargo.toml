@@ -10,6 +10,8 @@ edition = "2021"
 abci-rs = { version = "0.11.3", features = ["async-api" ] }
 async-trait = "0.1.56"
 tokio = { version = "1.27.0", features = ["macros"] }
+# tokio = { version = "1.27.0", features = ["full"] }
+tokio-util = { version = "0.6", features = ["codec"] }
 
 eyre = "0.6.8"
 hex = "0.4.3"
@@ -17,13 +19,7 @@ serde_json = "1.0.82"
 serde = { version = "1.0.138", features = ["derive"] }
 
 # cli lib
-clap = { version = "3.0.10", features = [
-    "derive",
-    "env",
-    "unicode",
-    "wrap_help",
-] }
-clap_complete = "3.0.4"
+clap = "2.33.3"
 
 reqwest = "0.11.11"
 tracing = "0.1.35"
@@ -44,4 +40,4 @@ ring = "0.16.20"
 rustc-serialize = "0.3.24"
 bs58 = "0.4.0"
 futures = "0.3"
-libp2p = { version = "0.51.0" }
+libp2p = { version = "0.40.0", features = ["tcp-tokio"]}

@@ -18,10 +18,13 @@ use libp2p::{
     gossipsub::{IdentTopic as Topic, GossipsubConfigBuilder, ValidationMode, MessageId, GossipsubMessage}, 
     swarm::SwarmBuilder, 
     identity::Keypair, 
-    tcp::TokioTcpConfig, 
+    tcp::{GenTcpConfig, tokio::Tcp},
     core::upgrade, 
     Swarm, PeerId, noise, yamux, Transport,
 };
+
+pub type TokioTcpConfig = GenTcpConfig<Tcp>;
+
 
 static ID_KEYS: Lazy<Keypair> = Lazy::new(Keypair::generate_ed25519);
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(ID_KEYS.public()));

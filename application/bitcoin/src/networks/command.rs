@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use crate::Block;
+use crate::blocks::Block;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Commands {

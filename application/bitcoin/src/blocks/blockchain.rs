@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::{Block, SledDb, Storage, Transaction, Txoutput, error::BlockchainError};
 
-pub const CURR_BITS: usize = 8;
+pub const CURR_BITS: usize = 21_000_000;
 
 #[derive(Debug, Default)]
 pub struct Blockchain<T = SledDb> {

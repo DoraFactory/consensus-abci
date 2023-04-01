@@ -1,8 +1,7 @@
 [workspace]
 members = [
-    # "./application/counter", 
-    # "./consensus/non-consensus-abci",
-
+    "./application/counter", 
+    "./consensus/non-consensus-abci",
     "./application/bitcoin",
     "./consensus/pow-abci", 
 ]
