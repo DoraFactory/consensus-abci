@@ -1,2 +1,8 @@
 [workspace]
-members = ["./application/counter", "./consensus/pow-abci"]
+members = [
+    # "./application/counter", 
+    # "./consensus/non-consensus-abci",
+
+    "./application/bitcoin",
+    "./consensus/pow-abci", 
+]
