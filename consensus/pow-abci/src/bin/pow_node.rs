@@ -16,28 +16,20 @@ async fn main() -> Result<()> {
         .args_from_usage("-v... 'Sets the level of verbosity")
         .subcommand(
             SubCommand::with_name("run")
-            .subcommand(
-                SubCommand::with_name("genesis_account")
-                    .about(
-                        "This is a tag for the bitmint blockchain builder to set the initial account who hold the all assets. \n
-                        It will create it in the genesis block internally"
-                    )
-                    .args_from_usage("--account=<string> 'set the initial account in genesis block'")
-            )
-            .setting(AppSettings::SubcommandRequiredElseHelp)
+            // .setting(AppSettings::SubcommandRequiredElseHelp)
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
     
     match matches.subcommand() {
-        ("run", Some(sub_matches)) => run(sub_matches).await?,
+        ("run", Some(sub_matches)) => run().await?,
         _ => unreachable!(),
     }
     Ok(())
 }
 
 
-async fn run(matches: &ArgMatches<'_>) -> Result<()> {
+async fn run() -> Result<()> {
 
     let (tx_req, mut rx_req) = channel(CHANNEL_CAPACITY);
 
@@ -45,7 +37,7 @@ async fn run(matches: &ArgMatches<'_>) -> Result<()> {
     let (tx_abci_req, mut rx_abci_queries) = channel(CHANNEL_CAPACITY);
 
     //TODO: Add genesis account
-    let genesis_account = matches.value_of("genesis_account").unwrap();
+    // let genesis_account = matches.value_of("genesis_account").unwrap();
     // expose the client port 26657
     tokio::spawn(async move {
         // let address = "127.0.0.1:26657".to_string();

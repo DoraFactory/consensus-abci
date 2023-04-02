@@ -94,6 +94,7 @@ impl Engine {
 
     //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
     fn aggrement_tx(&mut self, count: u64) -> eyre::Result<()> {
+        //TODO: 达到目标难度值，然后打包，将交易deliver
         self.deliver_tx(count)
     }
 

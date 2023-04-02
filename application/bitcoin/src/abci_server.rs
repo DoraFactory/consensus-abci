@@ -8,19 +8,19 @@ use abci::{
 };
 use tracing::info;
 
-use crate::BitcoinState;
+use crate::Node;
 
 /// consensus connection
 #[derive(Debug)]
 pub struct ConsensusConnection {
-    committed_state: Arc<Mutex<BitcoinState>>,
-    current_state: Arc<Mutex<Option<BitcoinState>>>,
+    committed_state: Arc<Mutex<Node>>,
+    current_state: Arc<Mutex<Option<Node>>>,
 }
 
 impl ConsensusConnection {
     pub fn new(
-        committed_state: Arc<Mutex<BitcoinState>>,
-        current_state: Arc<Mutex<Option<BitcoinState>>>,
+        committed_state: Arc<Mutex<Node>>,
+        current_state: Arc<Mutex<Option<Node>>>,
     ) -> Self {
         Self {
             committed_state,
@@ -31,45 +31,8 @@ impl ConsensusConnection {
 
 #[async_trait]
 impl Consensus for ConsensusConnection {
-    /* async fn init_chain(&self, _init_chain_request: RequestInitChain) -> ResponseInitChain {
-        Default::default();
-        // 创世区块中引入genesis account
-        // 判断当前是不是存在链，如果不存在就创建链
-        /* WALLET_MAP
-            .lock()
-            .await
-            .entry(name.clone())
-            .or_insert_with(|| {
-                let mut wallets = Wallets::new().unwrap();
-                let addr = wallets.create_wallet();
-                info!("{}'s address is {}", name, addr);
-                addr
-            });
-
-        if self.bc.get_tip().is_empty() {
-            self.bc.create_genesis_block(addr.as_str());
-            self.utxos.reindex(&self.bc)?;
-            info!("Genesis block was created success!");
-        } */
-    } */
     async fn init_chain(&self, _init_chain_request: RequestInitChain) -> ResponseInitChain {
-
-        /* WALLET_MAP
-            .lock()
-            .await
-            .entry(name.clone())
-            .or_insert_with(|| {
-                let mut wallets = Wallets::new().unwrap();
-                let addr = wallets.create_wallet();
-                info!("{}'s address is {}", name, addr);
-                addr
-            });
-
-        if self.bc.get_tip().is_empty() {
-            self.bc.create_genesis_block(addr.as_str());
-            self.utxos.reindex(&self.bc)?;
-            info!("Genesis block was created success!");
-        } */
+        //TODO: BTC生成创世区块
         Default::default()
     }
 
@@ -179,11 +142,11 @@ impl Mempool for MempoolConnection {
 
 /// Info connection
 pub struct InfoConnection {
-    state: Arc<Mutex<BitcoinState>>,
+    state: Arc<Mutex<Node>>,
 }
 
 impl InfoConnection {
-    pub fn new(state: Arc<Mutex<BitcoinState>>) -> Self {
+    pub fn new(state: Arc<Mutex<Node>>) -> Self {
         info!("Current State is: {:?}", state);
         Self { state }
     }
