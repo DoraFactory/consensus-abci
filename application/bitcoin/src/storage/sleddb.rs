@@ -1,8 +1,9 @@
 use std::{path::Path, collections::HashMap};
 use sled::{Db, IVec, transaction::TransactionResult};
 
-use crate::{Storage, error::BlockchainError, Block, utils::{deserialize, serialize}, TIP_KEY, TABLE_OF_BLOCK, HEIGHT, StorageIterator, UTXO_SET, Txoutput};
+use crate::{Storage, error::BlockchainError, Block, utils::{deserialize, serialize}, APP_HASH_KEY, TABLE_OF_BLOCK, HEIGHT, StorageIterator, UTXO_SET, Txoutput};
 
+#[derive(Clone)]
 pub struct SledDb {
     db: Db
 }
@@ -20,8 +21,8 @@ impl SledDb {
 }
 
 impl Storage for SledDb {
-    fn get_tip(&self) -> Result<Option<String>, BlockchainError> {
-        let result = self.db.get(TIP_KEY)?.map(|v| deserialize::<String>(&v.to_vec()));
+    fn get_app_hash(&self) -> Result<Option<String>, BlockchainError> {
+        let result = self.db.get(APP_HASH_KEY)?.map(|v| deserialize::<String>(&v.to_vec()));
         result.map_or(Ok(None), |v| v.map(Some))
     }
 
@@ -40,7 +41,7 @@ impl Storage for SledDb {
         let _: TransactionResult<(), ()> = self.db.transaction(|db| {
             let name = Self::get_full_key(TABLE_OF_BLOCK, key);
             db.insert(name.as_str(), serialize(block).unwrap())?;
-            db.insert(TIP_KEY, serialize(key).unwrap())?;
+            db.insert(APP_HASH_KEY, serialize(key).unwrap())?;
             db.insert(HEIGHT, serialize(&height).unwrap())?;
             db.flush();
             Ok(())

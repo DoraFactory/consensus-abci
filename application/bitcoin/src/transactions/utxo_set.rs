@@ -2,9 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{Storage, Blockchain, error::BlockchainError};
 
-
+#[derive(Debug, Default, Clone)]
 pub struct UTXOSet<T> {
-    storage: Arc<T>
+    pub storage: Arc<T>
 }
 
 impl<T: Storage> UTXOSet<T> {

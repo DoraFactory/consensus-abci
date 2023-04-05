@@ -13,11 +13,11 @@ use tracing_subscriber::FmtSubscriber;
 
 use abci::async_api::Server;
 use bitcoin::{
-    BitcoinState, ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection,
+    ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection,
 };
 
 use anyhow::{Result};
-use bitcoin::{Node, SledDb};
+use bitcoin::{NodeState, SledDb};
 
 use clap::{crate_authors, crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
@@ -79,18 +79,19 @@ async fn main() -> std::io::Result<()> {
         .get_matches();
 
     let path = matches.value_of("data-dir").unwrap();
+    let genesis_account = matches.value_of("genesis_account").unwrap();
     let abci_server_port = matches.value_of("server").unwrap();
 
 
     // 创建本地peer节点数据存储
     let path = current_dir().unwrap().join(String::from(path));
     let db = Arc::new(SledDb::new(path));
-    let mut node = Node::new(db).await.unwrap();
+/*     let mut node = NodeState::new(db, genesis_account).await.unwrap();
 
     // start the peer node
-    node.start(&matches).await;
+    node.start(&matches).await; */
 
-    let server = server();
+    let server = server(db, genesis_account, &matches);
 
     let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
     let port = abci_server_port.parse::<u16>().unwrap();
@@ -99,14 +100,24 @@ async fn main() -> std::io::Result<()> {
 
     // start the abci server
     server
-        .run(abci_server_address)
+        .await.run(abci_server_address)
         .await
 }
 
-pub fn server() -> Server<ConsensusConnection, MempoolConnection, InfoConnection, SnapshotConnection>
+pub async fn server<SledDb>(storage: Arc<SledDb>, genesis_account: &str, matches: &ArgMatches<'_>) -> Server<ConsensusConnection<SledDb>, MempoolConnection, InfoConnection<SledDb>, SnapshotConnection>
 {
-    let committed_state: Arc<Mutex<BitcoinState>> = Default::default();
-    let current_state: Arc<Mutex<Option<BitcoinState>>> = Default::default();
+    let mut node = NodeState::new(storage, genesis_account).await.unwrap();
+
+    let committed_state: Arc<Mutex<NodeState<SledDb>>> = Arc::clone(node);
+/*     NodeState{
+        bc: node.bc,
+        utxos: node.utxos,
+        msg_receiver: Arc::new(Mutex::new(node.msg_receiver.clone())),
+        swarm: Arc::
+    }; */
+    let current_state: Arc<Mutex<Option<NodeState<SledDb>>>> = Arc::clone(&node);
+    // start the peer node
+    node.start(&matches).await;
 
     let consensus = ConsensusConnection::new(committed_state.clone(), current_state);
     let mempool = MempoolConnection;

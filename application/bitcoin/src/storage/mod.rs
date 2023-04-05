@@ -6,13 +6,13 @@ mod sleddb;
 
 pub use sleddb::SledDb;
 
-pub const TIP_KEY: &str = "tip_hash";
+pub const APP_HASH_KEY: &str = "app_hash";
 pub const HEIGHT: &str = "height";
 pub const TABLE_OF_BLOCK: &str = "blocks";
 pub const UTXO_SET: &str = "utxos";
 
 pub trait Storage: Send + Sync + 'static {
-    fn get_tip(&self) -> Result<Option<String>, BlockchainError>;
+    fn get_app_hash(&self) -> Result<Option<String>, BlockchainError>;
     fn get_block(&self, key: &str) -> Result<Option<Block>, BlockchainError>;
     fn get_height(&self) -> Result<Option<usize>, BlockchainError>;
     fn update_blocks(&self, key: &str, block: &Block, height: usize);
