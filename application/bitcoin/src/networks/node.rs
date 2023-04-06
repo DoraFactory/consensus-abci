@@ -3,23 +3,27 @@ use crate::{
     Transaction, UTXOSet, Wallets,
 };
 use anyhow::{Error, Result};
-use futures::{StreamExt, task::AtomicWaker};
+use futures::{task::AtomicWaker, StreamExt};
 use libp2p::{swarm::SwarmEvent, PeerId, Swarm};
 use std::io;
+use std::ops::DerefMut;
 use std::sync::Arc;
+use std::net::SocketAddr;
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     sync::{mpsc, Mutex},
 };
-use std::ops::DerefMut;
 use tracing::{error, info};
 
 use super::{create_swarm, BLOCK_TOPIC, PEER_ID, TRANX_TOPIC, WALLET_MAP};
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
+use crate::{ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection};
+use abci::async_api::Server;
+
 // Node主要处理p2p网络同步
 #[derive(Clone)]
-pub struct NodeState<T = SledDb> {
+pub struct NodeState<T = SledDb> where T: std::clone::Clone{
     pub bc: Blockchain<T>,
     pub utxos: UTXOSet<T>,
     /*     pub msg_receiver: mpsc::UnboundedReceiver<Messages>,
@@ -46,7 +50,7 @@ pub struct AppState {
 
 */
 
-impl<T: Storage> NodeState<T> {
+impl<T: Storage + std::clone::Clone> NodeState<T> {
     pub async fn new(storage: Arc<T>, genesis_account: &str) -> Result<Self> {
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
 
@@ -62,12 +66,18 @@ impl<T: Storage> NodeState<T> {
         });
 
         let mut bc = Blockchain::new(storage.clone()).await;
-        let mut utxos = UTXOSet::new(storage);
+        info!("setup blockchain...");
 
+        let mut utxos = UTXOSet::new(storage);
+        info!("create utxos...");
+
+        info!("start create genesis block...");
         // create genesis block with the genesis account
         bc.create_genesis_block(addr.as_str());
+
         // update utxo
         utxos.reindex(&bc).await?;
+        info!("Everything is ok, you have created you first bitmint chain!");
 
         // create a new Node
         Ok(Self {
@@ -185,21 +195,38 @@ impl<T: Storage> NodeState<T> {
         Ok(())
     }
 
-    pub async fn start(&mut self, matches: &ArgMatches<'_>) -> Result<()> {
+    pub async fn start<U: Storage + std::clone::Clone>(&mut self, matches: &ArgMatches<'_>, abci_server_address: SocketAddr) -> Result<()> {
+        info!("开始启动节点...");
         let swarm_arc = self.swarm.clone();
         let mut swarm_lock = swarm_arc.lock().await;
         let mut swarm = swarm_lock.deref_mut();
+
+        let msg_receiver_arc = self.msg_receiver.clone();
+        let mut msg_receiver_lock = msg_receiver_arc.lock().await;
+        let mut msg_receiver = msg_receiver_lock.deref_mut();
+
+        // generate state
+        let committed_state: Arc<Mutex<NodeState<T>>> = Arc::new(Mutex::new(self.clone()));
+        let current_state: Arc<Mutex<Option<NodeState<T>>>> =
+            Arc::new(Mutex::new(Some(self.clone())));
+
+        // build connection
+        let consensus = ConsensusConnection::new(committed_state.clone(), current_state);
+        let mempool = MempoolConnection;
+        let info = InfoConnection::new(committed_state);
+        let snapshot = SnapshotConnection;
+
+        // create a abci server
+        let server = Server::new(consensus, mempool, info, snapshot);
+        // run abci server
+        server.run(abci_server_address).await?;
+
         swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
         loop {
-            let msg_receiver_arc = self.msg_receiver.clone();
-            let mut msg_receiver_lock = msg_receiver_arc.lock().await;
-            let mut msg_receiver = msg_receiver_lock.deref_mut();
-
-            let swarm_arc = self.swarm.clone();
+            /*             let swarm_arc = self.swarm.clone();
             let mut swarm_lock = swarm_arc.lock().await;
-            let mut swarm = swarm_lock.deref_mut();
-
-            self.sync().await;
+            let mut swarm = swarm_lock.deref_mut(); */
+            self.sync().await?;
             tokio::select! {
                 messages = msg_receiver.recv() => {
                     if let Some(msg) = messages {

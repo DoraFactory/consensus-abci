@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Serialize, Deserialize};
+use tracing::info;
 
 use crate::{ProofOfWork, Transaction, utils::{serialize, hash_to_str}};
 
@@ -48,6 +49,7 @@ impl Block {
 
     pub fn create_genesis_block(bits: usize, genesis_addr: &str) -> Self {
         let coinbase = Transaction::new_coinbase(genesis_addr);
+        info!("coinbase transaction is {:?}", coinbase);
         Self::new(&vec![coinbase], "", bits)
     }
 

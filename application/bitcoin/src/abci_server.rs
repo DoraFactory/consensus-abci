@@ -15,7 +15,7 @@ use crate::{NodeState, SledDb, Storage};
 
 /// consensus connection
 // #[derive(Debug)]
-pub struct ConsensusConnection<T= SledDb> {
+pub struct ConsensusConnection<T= SledDb> where T: std::clone::Clone{
     committed_state: Arc<Mutex<NodeState<T>>>,
     current_state: Arc<Mutex<Option<NodeState<T>>>>,
 }
@@ -151,7 +151,7 @@ impl Mempool for MempoolConnection {
 }
 
 /// Info connection
-pub struct InfoConnection<T= SledDb> {
+pub struct InfoConnection<T= SledDb> where T: std::clone::Clone{
     state: Arc<Mutex<NodeState<T>>>,
 }
 

@@ -5,6 +5,7 @@ mod command;
 pub use behaviour::*;
 pub use node::*;
 pub use command::*;
+use tracing::info;
 
 use once_cell::sync::Lazy;
 use tokio::sync::{mpsc, Mutex};
@@ -34,7 +35,7 @@ static TRANX_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("tranxs"));
 static WALLET_MAP: Lazy<Arc<Mutex<HashMap<String, String>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 async fn create_swarm(topics: Vec<Topic>, msg_sender: mpsc::UnboundedSender<Messages>) -> Result<Swarm<BlockchainBehaviour>> {
-    println!("Local peer id: {:?}", *PEER_ID);
+    info!("Your local peer id: {:?}", *PEER_ID);
 
     let noise_keys = noise::Keypair::<noise::X25519Spec>::new().into_authentic(&ID_KEYS)?;
 

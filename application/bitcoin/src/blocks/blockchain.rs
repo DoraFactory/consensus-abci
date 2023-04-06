@@ -9,7 +9,8 @@ use tracing::info;
 // use async_trait::async_trait;
 use crate::{Block, SledDb, Storage, Transaction, Txoutput, error::BlockchainError};
 
-pub const CURR_BITS: usize = 21_000_000;
+// block difficulty
+pub const CURR_BITS: usize = 5;
 
 #[derive(Debug, Default, Clone)]
 pub struct Blockchain<T = SledDb> {
@@ -40,6 +41,7 @@ impl<T: Storage> Blockchain<T> {
     pub fn create_genesis_block(&mut self, genesis_addr: &str) {
         let genesis_block = Block::create_genesis_block(CURR_BITS, genesis_addr);
         let hash = genesis_block.get_hash();
+        info!("genesis hash is {:?}", hash);
         self.height.fetch_add(1, Ordering::Relaxed);
         self.storage.update_blocks(&hash, &genesis_block, self.height.load(Ordering::Relaxed));
         let mut app_hash = self.app_hash.write().unwrap();
