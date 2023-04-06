@@ -154,10 +154,10 @@ impl Engine {
     /// Calls the `InitChain` hook on the app, ignores "already initialized" errors.
     pub fn init_chain(&mut self) -> eyre::Result<()> {
         let mut client = ClientBuilder::default().connect(&self.app_address)?;
-        //TODO: 这里在一开始需要去连接app的时候，首先需要传入一个账户作为链的初始账户
         match client.init_chain(Default::default()) {
-            Ok(_) => {
-                println!("Init chain successfully! Hello ABCI.")
+            Ok(resp) => {
+                println!("Init chain successfully! Hello ABCI.");
+                self.last_app_hash = resp.app_hash
             }
             Err(err) => {
                 // ignore errors about the chain being uninitialized

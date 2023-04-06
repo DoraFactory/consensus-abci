@@ -2,9 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{Storage, Blockchain, error::BlockchainError};
 
-
+#[derive(Debug, Default, Clone)]
 pub struct UTXOSet<T> {
-    storage: Arc<T>
+    pub storage: Arc<T>
 }
 
 impl<T: Storage> UTXOSet<T> {
@@ -14,19 +14,19 @@ impl<T: Storage> UTXOSet<T> {
         }
     }
 
-    pub fn reindex(&self, bc: &Blockchain<T>) -> Result<(), BlockchainError> {
+    pub async fn reindex(&self, bc: &Blockchain<T>) -> Result<(), BlockchainError> {
         self.storage.clear_utxo_set();
-        let map = bc.find_utxo();
+        let map = bc.find_utxo().await;
         for (txid, outs) in map {
-            self.storage.write_utxo(&txid, outs)?;
+            self.storage.write_utxo(&txid, outs).await?;
         }
         Ok(())
     }
 
-    pub fn find_spendable_outputs(&self, public_key_hash: &[u8], amount: i32) -> (i32, HashMap<String, Vec<usize>>) {
+    pub async fn find_spendable_outputs(&self, public_key_hash: &[u8], amount: i32) -> (i32, HashMap<String, Vec<usize>>) {
         let mut unspent_outputs = HashMap::new();
         let mut accumulated = 0;
-        let utxo_set = self.storage.get_utxo_set();
+        let utxo_set = self.storage.get_utxo_set().await;
         
         for (txid, outs) in utxo_set.iter() {
             for (idx, out) in outs.iter().enumerate() {

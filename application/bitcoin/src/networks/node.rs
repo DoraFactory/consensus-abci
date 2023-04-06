@@ -2,44 +2,99 @@ use crate::{
     blocks::Blockchain, Block, BlockchainBehaviour, Commands, Messages, SledDb, Storage,
     Transaction, UTXOSet, Wallets,
 };
-use anyhow::{Result, Error};
-use futures::StreamExt;
+use anyhow::{Error, Result};
+use futures::{task::AtomicWaker, StreamExt};
 use libp2p::{swarm::SwarmEvent, PeerId, Swarm};
-use std::sync::Arc;
 use std::io;
+use std::ops::DerefMut;
+use std::sync::Arc;
+use std::net::SocketAddr;
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
-    sync::mpsc,
+    sync::{mpsc, Mutex},
 };
 use tracing::{error, info};
 
 use super::{create_swarm, BLOCK_TOPIC, PEER_ID, TRANX_TOPIC, WALLET_MAP};
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
-pub struct Node<T = SledDb> {
-    bc: Blockchain<T>,
-    utxos: UTXOSet<T>,
-    msg_receiver: mpsc::UnboundedReceiver<Messages>,
-    swarm: Swarm<BlockchainBehaviour>,
+use crate::{ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection};
+use abci::async_api::Server;
+
+// Node主要处理p2p网络同步
+#[derive(Clone)]
+pub struct NodeState<T = SledDb> where T: std::clone::Clone{
+    pub bc: Blockchain<T>,
+    pub utxos: UTXOSet<T>,
+    /*     pub msg_receiver: mpsc::UnboundedReceiver<Messages>,
+    pub swarm: Swarm<BlockchainBehaviour> */
+    pub msg_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Messages>>>,
+    pub swarm: Arc<Mutex<Swarm<BlockchainBehaviour>>>,
 }
 
-impl<T: Storage> Node<T> {
-    pub async fn new(storage: Arc<T>) -> Result<Self> {
+/*
+
+我现在有一个结构
+pub struct NodeState<T = SledDb> {
+    pub app: AppState,
+    pub msg_receiver: mpsc::UnboundedReceiver<Messages>,
+    pub swarm: Swarm<BlockchainBehaviour>,
+}
+
+pub struct AppState {
+    pub bc: Blockchain<T>,
+    pub utxos: UTXOSet<T>,
+}
+
+一开始，我会启动这个NodeState实例，然后在每次更新APpState中的bc的时候，调用swarm的方法进行广播，这种要怎么做呢？
+
+*/
+
+impl<T: Storage + std::clone::Clone> NodeState<T> {
+    pub async fn new(storage: Arc<T>, genesis_account: &str) -> Result<Self> {
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
 
+        let walle_name = String::from(genesis_account);
+        let mut wallet_app = WALLET_MAP.lock().await;
+
+        // 新建节点的时候，就创建账户，并将其塞进创世区块
+        let addr = wallet_app.entry(walle_name.clone()).or_insert_with(|| {
+            let mut wallets = Wallets::new().unwrap();
+            let addr = wallets.create_wallet();
+            info!("{}'s address is {}", walle_name, addr);
+            addr
+        });
+
+        let mut bc = Blockchain::new(storage.clone()).await;
+        info!("setup blockchain...");
+
+        let mut utxos = UTXOSet::new(storage);
+        info!("create utxos...");
+
+        info!("start create genesis block...");
+        // create genesis block with the genesis account
+        bc.create_genesis_block(addr.as_str());
+
+        // update utxo
+        utxos.reindex(&bc).await?;
+        info!("Everything is ok, you have created you first bitmint chain!");
+
+        // create a new Node
         Ok(Self {
-            bc: Blockchain::new(storage.clone()),
-            utxos: UTXOSet::new(storage),
-            msg_receiver,
-            swarm: create_swarm(vec![BLOCK_TOPIC.clone(), TRANX_TOPIC.clone()], msg_sender).await?,
+            bc,
+            utxos,
+            msg_receiver: Arc::new(Mutex::new(msg_receiver)),
+            swarm: Arc::new(Mutex::new(
+                create_swarm(vec![BLOCK_TOPIC.clone(), TRANX_TOPIC.clone()], msg_sender).await?,
+            )),
         })
     }
 
-    pub async fn list_peers(&mut self) -> Result<Vec<&PeerId>> {
-        let nodes = self.swarm.behaviour().mdns.discovered_nodes();
+    /*     pub async fn list_peers(&mut self) -> Result<Vec<&PeerId>> {
+        let nodes = self.swarm.lock().await.as_mut().unwrap().behaviour().mdns.discovered_nodes();
         let peers = nodes.collect::<Vec<_>>();
         Ok(peers)
-    }
+    } */
 
     async fn sync(&mut self) -> Result<()> {
         let version = Messages::Version {
@@ -48,7 +103,11 @@ impl<T: Storage> Node<T> {
         };
 
         let line = serde_json::to_vec(&version)?;
-        self.swarm
+
+        let swarm_arc = self.swarm.clone();
+        let mut swarm_lock = swarm_arc.lock().await;
+        let mut swarm = swarm_lock.deref_mut();
+        swarm
             .behaviour_mut()
             .gossipsub
             .publish(BLOCK_TOPIC.clone(), line)
@@ -57,15 +116,20 @@ impl<T: Storage> Node<T> {
         Ok(())
     }
 
-    async fn mine_block(&mut self, from: &str, to: &str, amount: i32) -> Result<()> {
-        let tx = Transaction::new_utxo(from, to, amount, &self.utxos, &self.bc);
+    async fn transfer(&mut self, from: &str, to: &str, amount: i32) -> Result<()> {
+        // 这一部分应该是在deliver_tx
+        let tx = Transaction::new_utxo(from, to, amount, &self.utxos, &self.bc).await;
         let txs = vec![tx];
-        let block = self.bc.mine_block(&txs);
-        self.utxos.reindex(&self.bc).unwrap();
+        let block = self.bc.mine_block(&txs).await;
+        self.utxos.reindex(&self.bc).await.unwrap();
 
         let b = Messages::Block { block };
         let line = serde_json::to_vec(&b)?;
-        self.swarm
+
+        let swarm_arc = self.swarm.clone();
+        let mut swarm_lock = swarm_arc.lock().await;
+        let mut swarm = swarm_lock.deref_mut();
+        swarm
             .behaviour_mut()
             .gossipsub
             .publish(BLOCK_TOPIC.clone(), line)
@@ -76,12 +140,17 @@ impl<T: Storage> Node<T> {
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
         if self.bc.get_height() > best_height {
             let blocks = Messages::Blocks {
-                blocks: self.bc.get_blocks(),
+                blocks: self.bc.get_blocks().await,
                 height: self.bc.get_height(),
                 to_addr: from_addr,
             };
             let msg = serde_json::to_vec(&blocks)?;
-            self.swarm
+
+            let swarm_arc = self.swarm.clone();
+            let mut swarm_lock = swarm_arc.lock().await;
+            let mut swarm = swarm_lock.deref_mut();
+
+            swarm
                 .behaviour_mut()
                 .gossipsub
                 .publish(BLOCK_TOPIC.clone(), msg)
@@ -98,41 +167,68 @@ impl<T: Storage> Node<T> {
     ) -> Result<()> {
         if PEER_ID.to_string() == to_addr && self.bc.get_height() < height {
             for block in blocks {
-                self.bc.add_block(block)?;
+                self.bc.add_block(block).await?;
             }
 
-            self.utxos.reindex(&self.bc).unwrap();
+            self.utxos.reindex(&self.bc).await.unwrap();
         }
         Ok(())
     }
 
     pub async fn process_block_msg(&mut self, block: Block) -> Result<()> {
-        self.bc.add_block(block)?;
-        self.utxos.reindex(&self.bc).unwrap();
+        self.bc.add_block(block).await?;
+        self.utxos.reindex(&self.bc).await.unwrap();
         Ok(())
     }
 
     pub async fn create_wallet(&mut self, wallet_name: String) -> Result<()> {
-        WALLET_MAP.lock().await.entry(wallet_name.clone()).or_insert_with(|| {
-            let mut wallets = Wallets::new().unwrap();
-            let addr = wallets.create_wallet();
-            info!("{}'s address is {}", wallet_name, addr);
-            addr
-        });
+        WALLET_MAP
+            .lock()
+            .await
+            .entry(wallet_name.clone())
+            .or_insert_with(|| {
+                let mut wallets = Wallets::new().unwrap();
+                let addr = wallets.create_wallet();
+                info!("{}'s address is {}", wallet_name, addr);
+                addr
+            });
         Ok(())
     }
 
-    pub async fn transfer_tx(&mut self, from: String, to: String, amount: String) -> Result<()> {
-        self.mine_block(&from, &to, amount.parse::<i32>().unwrap()).await?;
-        Ok(())
-    }
+    pub async fn start<U: Storage + std::clone::Clone>(&mut self, matches: &ArgMatches<'_>, abci_server_address: SocketAddr) -> Result<()> {
+        info!("开始启动节点...");
+        let swarm_arc = self.swarm.clone();
+        let mut swarm_lock = swarm_arc.lock().await;
+        let mut swarm = swarm_lock.deref_mut();
 
-    pub async fn start(&mut self, matches: &ArgMatches<'_>) -> Result<()> {
-        self.swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
+        let msg_receiver_arc = self.msg_receiver.clone();
+        let mut msg_receiver_lock = msg_receiver_arc.lock().await;
+        let mut msg_receiver = msg_receiver_lock.deref_mut();
+
+        // generate state
+        let committed_state: Arc<Mutex<NodeState<T>>> = Arc::new(Mutex::new(self.clone()));
+        let current_state: Arc<Mutex<Option<NodeState<T>>>> =
+            Arc::new(Mutex::new(Some(self.clone())));
+
+        // build connection
+        let consensus = ConsensusConnection::new(committed_state.clone(), current_state);
+        let mempool = MempoolConnection;
+        let info = InfoConnection::new(committed_state);
+        let snapshot = SnapshotConnection;
+
+        // create a abci server
+        let server = Server::new(consensus, mempool, info, snapshot);
+        // run abci server
+        server.run(abci_server_address).await?;
+
+        swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
         loop {
-            self.sync().await;
+            /*             let swarm_arc = self.swarm.clone();
+            let mut swarm_lock = swarm_arc.lock().await;
+            let mut swarm = swarm_lock.deref_mut(); */
+            self.sync().await?;
             tokio::select! {
-                messages = self.msg_receiver.recv() => {
+                messages = msg_receiver.recv() => {
                     if let Some(msg) = messages {
                         match msg {
                             Messages::Version{best_height, from_addr} => {
@@ -147,7 +243,7 @@ impl<T: Storage> Node<T> {
                         }
                     }
                 },
-                event = self.swarm.select_next_some() => {
+                event = swarm.select_next_some() => {
                     if let SwarmEvent::NewListenAddr { address, .. } = event {
                         println!("Listening on {:?}", address);
                     }

@@ -16,10 +16,14 @@ pub use wallets::*;
 pub use networks::*;
 
 
-/// Define a counter
+/// Define a Bitcoin App State machine
 #[derive(Debug, Default, Clone)]
-pub struct BitcoinState {
-    block_height: i64,
-    app_hash: Vec<u8>,
-    counter: u64,
+pub struct BitcoinState<T = SledDb> {
+    //TODO: block_height and app_hash should be removed, because the bc has height and app_hash
+/*     block_height: i64,
+    app_hash: Vec<u8>, */
+    // blockchain state 
+    bc: Blockchain<T>,
+    // state transition logix
+    utxos: UTXOSet<T>,
 }

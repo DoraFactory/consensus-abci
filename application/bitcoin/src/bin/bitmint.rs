@@ -1,10 +1,10 @@
 use std::{
     env::{self, current_dir},
-    net::{SocketAddr, IpAddr, Ipv4Addr},
+    io::Error,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     ops::Sub,
     sync::Arc,
     time::Duration,
-    io::Error
 };
 use tokio::sync::Mutex;
 
@@ -12,12 +12,10 @@ use tracing::{subscriber::set_global_default, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use abci::async_api::Server;
-use bitcoin::{
-    BitcoinState, ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection,
-};
+use bitcoin::{ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection};
 
-use anyhow::{Result};
-use bitcoin::{Node, SledDb};
+use anyhow::Result;
+use bitcoin::{NodeState, SledDb, Storage};
 
 use clap::{crate_authors, crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
@@ -35,20 +33,15 @@ async fn main() -> std::io::Result<()> {
         .about("A implement of bitcoin by the tendermint ABCI, which we called bitmint blockchain")
         .arg_from_usage("-v... 'Sets the level of verbosity'")
         .subcommand(
-            SubCommand::with_name("genesis_account")
-                .about(
-                    "This is a tag for the bitmint blockchain builder to set the initial account who hold the all assets. \n
-                    It will create it in the genesis block internally"
-                )
-                .args_from_usage("--account=<string> 'set the initial account in genesis block'")
+            SubCommand::with_name("initChain")
+                .about("Create a new chain")
+                .args_from_usage("--account=<string> 'This is a tag for the bitmint blockchain builder to set the initial account who hold the all assets'")
+                .args_from_usage("--db=<string> This is the data dir for the current peer")
+                .args_from_usage("--port=<string> This is a setting of ABCI server(app) port, default is 26658 and you can customize it.")
         )
-        .subcommand(
-            SubCommand::with_name("data-dir")
-                .about("This is the data dir for the current peer")
-        )
-        .subcommand(
-            SubCommand::with_name("server")
-                .about("This is a setting of ABCI server(app) port, default is 26658 and you can customize it.")
+/*         .subcommand(
+            SubCommand::with_name("tx")
+                    .about("This is a setting of")
         )
         //TODO: 上面都是启动一个链的重要操作
         .subcommand(
@@ -69,49 +62,44 @@ async fn main() -> std::io::Result<()> {
                 .args_from_usage("--from=<String>> 'The sender address in bitmint.'")
                 .args_from_usage("--to=<String>> 'The receiver address in bitmint.'")
                 .args_from_usage("--amount=<String> 'The amount of this transfer'")
-        )
-
-        // sync应该是一个一直持续的动作,可以放在node那边持续进行
-        /* .subcommand(
-            SubCommand::with_name("sync")
         ) */
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 
-    let path = matches.value_of("data-dir").unwrap();
-    let abci_server_port = matches.value_of("server").unwrap();
+    match matches.subcommand() {
+        ("initChain", Some(matches)) => {
+            println!("{:?}", matches.value_of("db"));
+            let path = matches.value_of("db").unwrap();
+            let genesis_account = matches.value_of("account").unwrap();
+            let abci_server_port = matches.value_of("port").unwrap();
 
+            // create peer db
+            let path = current_dir().unwrap().join(String::from(path));
+            let db = Arc::new(SledDb::new(path));
 
-    // 创建本地peer节点数据存储
-    let path = current_dir().unwrap().join(String::from(path));
-    let db = Arc::new(SledDb::new(path));
-    let mut node = Node::new(db).await.unwrap();
+            // abci server port
+            let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+            let port = abci_server_port.parse::<u16>().unwrap();
+            let abci_server_address = SocketAddr::new(ip, port);
 
-    // start the peer node
-    node.start(&matches).await;
+            println!("监听端口为:{:?}", abci_server_address);
 
-    let server = server();
+            run(db, genesis_account, abci_server_address, &matches).await;
+        },
+        _ => unreachable!(),
+    }
 
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-    let port = abci_server_port.parse::<u16>().unwrap();
-    // TODO: 这里的端口还可以做设置（对于非本地的测试，默认都是26658端口）
-    let abci_server_address = SocketAddr::new(ip, port);
-
-    // start the abci server
-    server
-        .run(abci_server_address)
-        .await
+    Ok(())
 }
 
-pub fn server() -> Server<ConsensusConnection, MempoolConnection, InfoConnection, SnapshotConnection>
-{
-    let committed_state: Arc<Mutex<BitcoinState>> = Default::default();
-    let current_state: Arc<Mutex<Option<BitcoinState>>> = Default::default();
-
-    let consensus = ConsensusConnection::new(committed_state.clone(), current_state);
-    let mempool = MempoolConnection;
-    let info = InfoConnection::new(committed_state);
-    let snapshot = SnapshotConnection;
-
-    Server::new(consensus, mempool, info, snapshot)
+pub async fn run<T: Storage + std::clone::Clone>(
+    storage: Arc<T>,
+    genesis_account: &str,
+    address: SocketAddr,
+    matches: &ArgMatches<'_>,
+) -> Result<()> {
+    let mut node = NodeState::new(storage, genesis_account).await.unwrap();
+    // start the peer node
+    node.start::<T>(&matches, address).await.unwrap();
+    Ok(())
 }
