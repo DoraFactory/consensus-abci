@@ -5,9 +5,8 @@ use std::{
     }, 
     collections::HashMap
 };
-
 use tracing::info;
-
+// use async_trait::async_trait;
 use crate::{Block, SledDb, Storage, Transaction, Txoutput, error::BlockchainError};
 
 pub const CURR_BITS: usize = 21_000_000;
@@ -19,10 +18,11 @@ pub struct Blockchain<T = SledDb> {
     pub height: Arc<AtomicUsize>,
 }
 
+// #[async_trait]
 impl<T: Storage> Blockchain<T> {
-    pub fn new(storage: Arc<T>) -> Self {
-        if let Ok(Some(app_hash)) = storage.get_app_hash() {
-            let height = storage.get_height().unwrap();
+    pub async fn new(storage: Arc<T>) -> Self {
+        if let Ok(Some(app_hash)) = storage.get_app_hash().await {
+            let height = storage.get_height().await.unwrap();
             Self {
                 storage,
                 app_hash: Arc::new(RwLock::new(app_hash)),
@@ -46,9 +46,9 @@ impl<T: Storage> Blockchain<T> {
         *app_hash = hash;
     }
 
-    pub fn mine_block(&mut self, txs: &[Transaction]) -> Block {
+    pub async fn mine_block(&mut self, txs: &[Transaction]) -> Block {
         for tx in txs {
-            if tx.verify(self) == false {
+            if tx.verify(self).await == false {
                 panic!("ERROR: Invalid transaction")
             }
         }
@@ -63,9 +63,9 @@ impl<T: Storage> Blockchain<T> {
         block
     }
 
-    pub fn add_block(&mut self, block: Block) -> Result<(), BlockchainError> {
+    pub async fn add_block(&mut self, block: Block) -> Result<(), BlockchainError> {
         let hash = block.get_hash();
-        if let Some(_) = self.storage.get_block(&hash)? {
+        if let Some(_) = self.storage.get_block(&hash).await? {
             info!("Block {} already exists", hash);
         }else {
             self.height.fetch_add(1, Ordering::Relaxed);
@@ -76,11 +76,11 @@ impl<T: Storage> Blockchain<T> {
         Ok(())
     }
 
-    pub fn find_utxo(&self) -> HashMap<String, Vec<Txoutput>> {
+    pub async fn find_utxo(&self) -> HashMap<String, Vec<Txoutput>> {
         let mut utxo = HashMap::new();
         let mut spent_txos = HashMap::new();
 
-        let blocks = self.storage.get_block_iter().unwrap();
+        let blocks = self.storage.get_block_iter().await.unwrap();
         for block in blocks {
             for tx in block.get_tranxs() {
                 for (idx, txout) in tx.get_vout().iter().enumerate() {
@@ -112,8 +112,8 @@ impl<T: Storage> Blockchain<T> {
         utxo
     }
 
-    pub fn find_transaction(&self, txid: String) -> Option<Transaction> {
-        let blocks = self.storage.get_block_iter().unwrap();
+    pub async fn find_transaction(&self, txid: String) -> Option<Transaction> {
+        let blocks = self.storage.get_block_iter().await.unwrap();
         for block in blocks {
             for tx in block.get_tranxs() {
                 if tx.get_id() == txid {
@@ -124,15 +124,15 @@ impl<T: Storage> Blockchain<T> {
         None
     }
 
-    pub fn blocks_info(&self) {
-        let blocks = self.storage.get_block_iter().unwrap();
+    pub async fn blocks_info(&self) {
+        let blocks = self.storage.get_block_iter().await.unwrap();
         for block in blocks {
             info!("{:#?}", block);
         }
     }
 
-    pub fn get_blocks(&self) -> Vec<Block> {
-        self.storage.get_block_iter().unwrap().collect()
+    pub async fn get_blocks(&self) -> Vec<Block> {
+        self.storage.get_block_iter().await.unwrap().collect()
     }
 
     pub fn get_app_hash(&self) -> String {

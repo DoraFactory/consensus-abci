@@ -1,17 +1,21 @@
 use std::{path::Path, collections::HashMap};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use sled::{Db, IVec, transaction::TransactionResult};
+use std::ops::DerefMut;
+use async_trait::async_trait;
 
 use crate::{Storage, error::BlockchainError, Block, utils::{deserialize, serialize}, APP_HASH_KEY, TABLE_OF_BLOCK, HEIGHT, StorageIterator, UTXO_SET, Txoutput};
 
 #[derive(Clone)]
 pub struct SledDb {
-    db: Db
+    db: Arc<Mutex<Db>>
 }
 
 impl SledDb {
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
-            db: sled::open(path).unwrap()
+            db: Arc::new(Mutex::new(sled::open(path).unwrap()))
         }
     }
 
@@ -20,25 +24,38 @@ impl SledDb {
     }
 }
 
+#[async_trait]
 impl Storage for SledDb {
-    fn get_app_hash(&self) -> Result<Option<String>, BlockchainError> {
-        let result = self.db.get(APP_HASH_KEY)?.map(|v| deserialize::<String>(&v.to_vec()));
+    async fn get_app_hash(&self) -> Result<Option<String>, BlockchainError> {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+        let result = db.get(APP_HASH_KEY)?.map(|v| deserialize::<String>(&v.to_vec()));
         result.map_or(Ok(None), |v| v.map(Some))
     }
 
-    fn get_block(&self, key: &str) -> Result<Option<Block>, BlockchainError> {
+    async fn get_block(&self, key: &str) -> Result<Option<Block>, BlockchainError> {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
         let name = Self::get_full_key(TABLE_OF_BLOCK, key);
-        let result = self.db.get(name)?.map(|v| v.into());
+        let result = db.get(name)?.map(|v| v.into());
         Ok(result)
     }
 
-    fn get_height(&self) -> Result<Option<usize>, BlockchainError> {
-        let result = self.db.get(HEIGHT)?.map(|v| deserialize::<usize>(&v.to_vec()));
+    async fn get_height(&self) -> Result<Option<usize>, BlockchainError> {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+        let result = db.get(HEIGHT)?.map(|v| deserialize::<usize>(&v.to_vec()));
         result.map_or(Ok(None), |v| v.map(Some))
     }
 
-    fn update_blocks(&self, key: &str, block: &Block, height: usize) {
-        let _: TransactionResult<(), ()> = self.db.transaction(|db| {
+    async fn update_blocks(&self, key: &str, block: &Block, height: usize) {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+        let _: TransactionResult<(), ()> = db.transaction(|db| {
             let name = Self::get_full_key(TABLE_OF_BLOCK, key);
             db.insert(name.as_str(), serialize(block).unwrap())?;
             db.insert(APP_HASH_KEY, serialize(key).unwrap())?;
@@ -48,18 +65,27 @@ impl Storage for SledDb {
         });
     }
 
-    fn get_block_iter(&self) -> Result<Box<dyn Iterator<Item = Block>>, BlockchainError> {
+    async fn get_block_iter(&self) -> Result<Box<dyn Iterator<Item = Block>>, BlockchainError> {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+
         let prefix = format!("{}:", TABLE_OF_BLOCK);
-        let iter = StorageIterator::new(self.db.scan_prefix(prefix));
+        let iter = StorageIterator::new(db.scan_prefix(prefix));
         Ok(Box::new(iter))
     }
 
-    fn get_utxo_set(&self) -> HashMap<String, Vec<crate::Txoutput>> {
+    async fn get_utxo_set(&self) -> HashMap<String, Vec<crate::Txoutput>> {
+
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+
         let mut map = HashMap::new();
 
         let prefix = format!("{}:", UTXO_SET);
 
-        for item in self.db.scan_prefix(prefix) {
+        for item in db.scan_prefix(prefix) {
             let (k, v) = item.unwrap();
             let txid = String::from_utf8(k.to_vec()).unwrap();
             let txid = txid.split(":").collect::<Vec<_>>()[1].into();
@@ -71,15 +97,23 @@ impl Storage for SledDb {
         map
     }
 
-    fn write_utxo(&self, txid: &str, outs: Vec<crate::Txoutput>) -> Result<(), BlockchainError> {
+    async fn write_utxo(&self, txid: &str, outs: Vec<crate::Txoutput>) -> Result<(), BlockchainError> {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+
         let name = format!("{}:{}", UTXO_SET, txid);
-        self.db.insert(name, serialize(&outs)?)?;
+        db.insert(name, serialize(&outs)?)?;
         Ok(())
     }
 
-    fn clear_utxo_set(&self) {
+    async fn clear_utxo_set(&self) {
+        let db_arc = self.db.clone();
+        let mut db_lock = db_arc.lock().await;
+        let mut db = db_lock.deref_mut();
+        
         let prefix = format!("{}:", UTXO_SET);
-        self.db.remove(prefix).unwrap();
+        db.remove(prefix).unwrap();
     }
 }
 

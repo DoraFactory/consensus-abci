@@ -26,12 +26,12 @@ impl Transaction {
         tx
     }
 
-    pub fn new_utxo<T: Storage>(from: &str, to: &str, amount: i32, utxo_set: &UTXOSet<T>, bc: &Blockchain<T>) -> Self {
+    pub async fn new_utxo<T: Storage>(from: &str, to: &str, amount: i32, utxo_set: &UTXOSet<T>, bc: &Blockchain<T>) -> Self {
         let wallets = Wallets::new().unwrap();
         let wallet = wallets.get_wallet(from).unwrap();
         let public_key_hash = hash_pub_key(wallet.get_public_key());
         
-        let (accumulated, valid_outputs) = utxo_set.find_spendable_outputs(&public_key_hash, amount);
+        let (accumulated, valid_outputs) = utxo_set.find_spendable_outputs(&public_key_hash, amount).await;
         if accumulated < amount {
             panic!("Error not enough funds");
         }
@@ -66,12 +66,12 @@ impl Transaction {
         }
     }
 
-    fn sign<T: Storage>(&mut self, bc: &Blockchain<T>, pkcs8: &[u8]) {
+    async fn sign<T: Storage>(&mut self, bc: &Blockchain<T>, pkcs8: &[u8]) {
         let mut tx_copy = self.trimmed_copy();
 
         for (idx, vin) in self.vin.iter_mut().enumerate() {
             // 查找输入引用的交易
-            let prev_tx_option = bc.find_transaction(vin.get_txid());
+            let prev_tx_option = bc.find_transaction(vin.get_txid()).await;
             if prev_tx_option.is_none() {
                 panic!("ERROR: Previous transaction is not correct")
             }
@@ -88,13 +88,13 @@ impl Transaction {
         }
     }
 
-    pub fn verify<T: Storage>(&self, bc: &Blockchain<T>) -> bool {
+    pub async fn verify<T: Storage>(&self, bc: &Blockchain<T>) -> bool {
         if self.is_coinbase() {
             return true;
         }
         let mut tx_copy = self.trimmed_copy();
         for (idx, vin) in self.vin.iter().enumerate() {
-            let prev_tx_option = bc.find_transaction(vin.get_txid());
+            let prev_tx_option = bc.find_transaction(vin.get_txid()).await;
             if prev_tx_option.is_none() {
                 panic!("ERROR: Previous transaction is not correct")
             }

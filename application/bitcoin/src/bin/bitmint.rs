@@ -17,7 +17,7 @@ use bitcoin::{
 };
 
 use anyhow::{Result};
-use bitcoin::{NodeState, SledDb};
+use bitcoin::{NodeState, SledDb, Storage};
 
 use clap::{crate_authors, crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
@@ -104,18 +104,13 @@ async fn main() -> std::io::Result<()> {
         .await
 }
 
-pub async fn server<SledDb>(storage: Arc<SledDb>, genesis_account: &str, matches: &ArgMatches<'_>) -> Server<ConsensusConnection<SledDb>, MempoolConnection, InfoConnection<SledDb>, SnapshotConnection>
+pub async fn server<T: Storage + std::clone::Clone>(storage: Arc<T>, genesis_account: &str, matches: &ArgMatches<'_>) -> Server<ConsensusConnection<T>, MempoolConnection, InfoConnection<T>, SnapshotConnection>
 {
     let mut node = NodeState::new(storage, genesis_account).await.unwrap();
 
-    let committed_state: Arc<Mutex<NodeState<SledDb>>> = Arc::clone(node);
-/*     NodeState{
-        bc: node.bc,
-        utxos: node.utxos,
-        msg_receiver: Arc::new(Mutex::new(node.msg_receiver.clone())),
-        swarm: Arc::
-    }; */
-    let current_state: Arc<Mutex<Option<NodeState<SledDb>>>> = Arc::clone(&node);
+    let committed_state: Arc<Mutex<NodeState<T>>> = Arc::new(Mutex::new(node.clone()));
+
+    let current_state: Arc<Mutex<Option<NodeState<T>>>> = Arc::new(Mutex::new(Some(node.clone())));
     // start the peer node
     node.start(&matches).await;
 

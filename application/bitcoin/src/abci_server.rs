@@ -10,20 +10,20 @@ use abci::{
 };
 use tracing::info;
 
-use crate::SledDb;
-use crate::NodeState;
+// use crate::T;
+use crate::{NodeState, SledDb, Storage};
 
 /// consensus connection
 // #[derive(Debug)]
-pub struct ConsensusConnection<SledDb: Clone + Send> {
-    committed_state: Arc<Mutex<NodeState<SledDb>>>,
-    current_state: Arc<Mutex<Option<NodeState<SledDb>>>>,
+pub struct ConsensusConnection<T= SledDb> {
+    committed_state: Arc<Mutex<NodeState<T>>>,
+    current_state: Arc<Mutex<Option<NodeState<T>>>>,
 }
 
-impl<SledDb: Clone + Send + Sync> ConsensusConnection<SledDb> {
+impl<T: Clone + Send + Sync> ConsensusConnection<T> {
     pub fn new(
-        committed_state: Arc<Mutex<NodeState<SledDb>>>,
-        current_state: Arc<Mutex<Option<NodeState<SledDb>>>>,
+        committed_state: Arc<Mutex<NodeState<T>>>,
+        current_state: Arc<Mutex<Option<NodeState<T>>>>,
     ) -> Self {
         Self {
             committed_state,
@@ -33,7 +33,7 @@ impl<SledDb: Clone + Send + Sync> ConsensusConnection<SledDb> {
 }
 
 #[async_trait]
-impl<SledDb: Clone + Send + Sync> Consensus for ConsensusConnection<SledDb> {
+impl<T: Clone + Send + Sync> Consensus for ConsensusConnection<T> {
     async fn init_chain(&self, _init_chain_request: RequestInitChain) -> ResponseInitChain {
         // Node启动新实例的时候会产生创世区块，所以这里只需要把最新的区块的信息返回就可以
         let mut current_state_lock = self.current_state.lock().await;
@@ -151,18 +151,18 @@ impl Mempool for MempoolConnection {
 }
 
 /// Info connection
-pub struct InfoConnection<SledDb> {
-    state: Arc<Mutex<NodeState<SledDb>>>,
+pub struct InfoConnection<T= SledDb> {
+    state: Arc<Mutex<NodeState<T>>>,
 }
 
-impl InfoConnection<SledDb> {
-    pub fn new(state: Arc<Mutex<NodeState<SledDb>>>) -> Self {
+impl<T: Clone + Send + Sync> InfoConnection<T> {
+    pub fn new(state: Arc<Mutex<NodeState<T>>>) -> Self {
         Self { state }
     }
 }
 
 #[async_trait]
-impl<SledDb: Clone + Send + Sync> Info for InfoConnection<SledDb> {
+impl<T: Clone + Send + Sync> Info for InfoConnection<T> {
     async fn info(&self, _info_request: RequestInfo) -> ResponseInfo {
         let state = self.state.lock().await;
         info!("-------------This is abci server Info connection response-------------");

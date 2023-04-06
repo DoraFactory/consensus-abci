@@ -61,13 +61,13 @@ impl<T: Storage> NodeState<T> {
             addr
         });
 
-        let mut bc = Blockchain::new(storage.clone());
+        let mut bc = Blockchain::new(storage.clone()).await;
         let mut utxos = UTXOSet::new(storage);
 
         // create genesis block with the genesis account
         bc.create_genesis_block(addr.as_str());
         // update utxo
-        utxos.reindex(&bc)?;
+        utxos.reindex(&bc).await?;
 
         // create a new Node
         Ok(Self {
@@ -108,10 +108,10 @@ impl<T: Storage> NodeState<T> {
 
     async fn transfer(&mut self, from: &str, to: &str, amount: i32) -> Result<()> {
         // 这一部分应该是在deliver_tx
-        let tx = Transaction::new_utxo(from, to, amount, &self.utxos, &self.bc);
+        let tx = Transaction::new_utxo(from, to, amount, &self.utxos, &self.bc).await;
         let txs = vec![tx];
-        let block = self.bc.mine_block(&txs);
-        self.utxos.reindex(&self.bc).unwrap();
+        let block = self.bc.mine_block(&txs).await;
+        self.utxos.reindex(&self.bc).await.unwrap();
 
         let b = Messages::Block { block };
         let line = serde_json::to_vec(&b)?;
@@ -130,7 +130,7 @@ impl<T: Storage> NodeState<T> {
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
         if self.bc.get_height() > best_height {
             let blocks = Messages::Blocks {
-                blocks: self.bc.get_blocks(),
+                blocks: self.bc.get_blocks().await,
                 height: self.bc.get_height(),
                 to_addr: from_addr,
             };
@@ -157,17 +157,17 @@ impl<T: Storage> NodeState<T> {
     ) -> Result<()> {
         if PEER_ID.to_string() == to_addr && self.bc.get_height() < height {
             for block in blocks {
-                self.bc.add_block(block)?;
+                self.bc.add_block(block).await?;
             }
 
-            self.utxos.reindex(&self.bc).unwrap();
+            self.utxos.reindex(&self.bc).await.unwrap();
         }
         Ok(())
     }
 
     pub async fn process_block_msg(&mut self, block: Block) -> Result<()> {
-        self.bc.add_block(block)?;
-        self.utxos.reindex(&self.bc).unwrap();
+        self.bc.add_block(block).await?;
+        self.utxos.reindex(&self.bc).await.unwrap();
         Ok(())
     }
 
