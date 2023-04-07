@@ -82,8 +82,6 @@ async fn main() -> std::io::Result<()> {
             let port = abci_server_port.parse::<u16>().unwrap();
             let abci_server_address = SocketAddr::new(ip, port);
 
-            println!("监听端口为:{:?}", abci_server_address);
-
             run(db, genesis_account, abci_server_address, &matches).await;
         },
         _ => unreachable!(),

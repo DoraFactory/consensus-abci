@@ -15,9 +15,11 @@ impl<T: Storage> UTXOSet<T> {
     }
 
     pub async fn reindex(&self, bc: &Blockchain<T>) -> Result<(), BlockchainError> {
-        self.storage.clear_utxo_set();
+        self.storage.clear_utxo_set().await;
         let map = bc.find_utxo().await;
+        println!("map为{:?}", map);
         for (txid, outs) in map {
+            println!("我进来开始写utxo集合了{:?}", txid);
             self.storage.write_utxo(&txid, outs).await?;
         }
         Ok(())
@@ -28,6 +30,8 @@ impl<T: Storage> UTXOSet<T> {
         let mut accumulated = 0;
         let utxo_set = self.storage.get_utxo_set().await;
         
+        println!("utxo集合为{:?}", utxo_set);
+
         for (txid, outs) in utxo_set.iter() {
             for (idx, out) in outs.iter().enumerate() {
                 if out.is_locked(public_key_hash) && accumulated < amount {

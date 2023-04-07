@@ -11,6 +11,13 @@ pub struct Transaction {
     vout: Vec<Txoutput>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ReqTrans {
+    pub from: String,
+    pub to: String,
+    pub amount: String
+}
+
 impl Transaction {
     pub fn new_coinbase(to: &str) -> Self {
         let txin = Txinput::default();
@@ -30,8 +37,11 @@ impl Transaction {
         let wallets = Wallets::new().unwrap();
         let wallet = wallets.get_wallet(from).unwrap();
         let public_key_hash = hash_pub_key(wallet.get_public_key());
+        println!("发送方公钥为{:?}", public_key_hash);
         
         let (accumulated, valid_outputs) = utxo_set.find_spendable_outputs(&public_key_hash, amount).await;
+
+        println!("发送方余额为{:?}", accumulated);
         if accumulated < amount {
             panic!("Error not enough funds");
         }
@@ -55,7 +65,7 @@ impl Transaction {
             vout: outputs,
         };
         tx.set_hash();
-        tx.sign(bc, wallet.get_pkcs8());
+        tx.sign(bc, wallet.get_pkcs8()).await;
         
         tx
     }

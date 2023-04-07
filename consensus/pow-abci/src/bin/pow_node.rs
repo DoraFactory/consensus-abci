@@ -16,19 +16,22 @@ async fn main() -> Result<()> {
         .args_from_usage("-v... 'Sets the level of verbosity")
         .subcommand(
             SubCommand::with_name("run")
-            // .setting(AppSettings::SubcommandRequiredElseHelp)
+            //TODO:
+            // .args_from_usage("--account=<string> 'This is a tag to set the initial account who hold the all assets'")
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
     
     match matches.subcommand() {
         ("run", Some(sub_matches)) => run().await?,
+        // ("run", Some(sub_matches)) => run(sub_matches).await?,
         _ => unreachable!(),
     }
     Ok(())
 }
 
 
+// async fn run(sub_matches: &ArgMatches<'_>) -> Result<()> {
 async fn run() -> Result<()> {
 
     let (tx_req, mut rx_req) = channel(CHANNEL_CAPACITY);
@@ -37,7 +40,7 @@ async fn run() -> Result<()> {
     let (tx_abci_req, mut rx_abci_queries) = channel(CHANNEL_CAPACITY);
 
     //TODO: Add genesis account
-    // let genesis_account = matches.value_of("genesis_account").unwrap();
+    // let _genesis_account = matches.value_of("genesis_account").unwrap();
     // expose the client port 26657
     tokio::spawn(async move {
         // let address = "127.0.0.1:26657".to_string();
@@ -56,9 +59,9 @@ async fn run() -> Result<()> {
     let port = 26658;
     let app_address = SocketAddr::new(ip, port);
 
-    let init_app_hash = vec![0];
+    // let init_app_hash = vec![0];
 
-    let mut engine = Engine::new(app_address, rx_abci_queries, init_app_hash);
+    let mut engine = Engine::new(app_address, rx_abci_queries);
 
     // engine.run(rx_req).await?;
     engine.run(rx_req).await?;

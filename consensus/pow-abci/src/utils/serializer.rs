@@ -30,3 +30,4 @@ pub fn hash_to_u8(data: &[u8], out: &mut [u8]) {
     hasher.input(data);
     hasher.result(out);
 }
+

@@ -38,17 +38,17 @@ impl<T: Storage> Blockchain<T> {
         }
     }
 
-    pub fn create_genesis_block(&mut self, genesis_addr: &str) {
+    pub async fn create_genesis_block(&mut self, genesis_addr: &str) {
         let genesis_block = Block::create_genesis_block(CURR_BITS, genesis_addr);
         let hash = genesis_block.get_hash();
         info!("genesis hash is {:?}", hash);
         self.height.fetch_add(1, Ordering::Relaxed);
-        self.storage.update_blocks(&hash, &genesis_block, self.height.load(Ordering::Relaxed));
+        self.storage.update_blocks(&hash, &genesis_block, self.height.load(Ordering::Relaxed)).await;
         let mut app_hash = self.app_hash.write().unwrap();
         *app_hash = hash;
     }
 
-    pub async fn mine_block(&mut self, txs: &[Transaction]) -> Block {
+    pub async fn construct_block(&mut self, txs: &[Transaction]) -> Block {
         for tx in txs {
             if tx.verify(self).await == false {
                 panic!("ERROR: Invalid transaction")
@@ -58,7 +58,7 @@ impl<T: Storage> Blockchain<T> {
         let block = Block::new(txs, &self.app_hash.read().unwrap(), CURR_BITS);
         let hash = block.get_hash();
         self.height.fetch_add(1, Ordering::Relaxed);
-        self.storage.update_blocks(&hash, &block, self.height.load(Ordering::Relaxed));
+        self.storage.update_blocks(&hash, &block, self.height.load(Ordering::Relaxed)).await;
         let mut app_hash = self.app_hash.write().unwrap();
         *app_hash = hash;
 
@@ -71,7 +71,7 @@ impl<T: Storage> Blockchain<T> {
             info!("Block {} already exists", hash);
         }else {
             self.height.fetch_add(1, Ordering::Relaxed);
-            self.storage.update_blocks(&hash, &block, self.height.load(Ordering::Relaxed));
+            self.storage.update_blocks(&hash, &block, self.height.load(Ordering::Relaxed)).await;
             let mut app_hash = self.app_hash.write().unwrap();
             *app_hash = hash;
         }
@@ -137,11 +137,11 @@ impl<T: Storage> Blockchain<T> {
         self.storage.get_block_iter().await.unwrap().collect()
     }
 
-    pub fn get_app_hash(&self) -> String {
+    pub async fn get_app_hash(&self) -> String {
         self.app_hash.read().unwrap().to_string()
     }
 
-    pub fn get_height(&self) -> usize {
+    pub async fn get_height(&self) -> usize {
         self.height.load(Ordering::Relaxed)
     }
 }

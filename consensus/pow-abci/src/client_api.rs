@@ -1,4 +1,4 @@
-use crate::{BroadcastTx, QueryInfo};
+use crate::{Transaction, QueryInfo};
 
 use eyre::WrapErr;
 use futures::SinkExt;
@@ -36,19 +36,22 @@ impl<T: Send + Sync + std::fmt::Debug> ClientApi<T> {
 impl ClientApi<ResponseQuery> {
     pub fn get_routes(
         self,
-        tx_req: Sender<u64>,
+        tx_req: Sender<Transaction>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
+        println!("进来咯");
         let route_broadcast_tx = warp::path("broadcast_tx")
-            .and(warp::query::<BroadcastTx>())
-            .and_then( move |req: BroadcastTx| {
+            .and(warp::query::<Transaction>())
+            .and_then( move |req: Transaction| {
                 let abci_tx = tx_req.clone();
+                println!("didididiid");
                 async move {
-                    log::warn!("broadcast_tx: {:?}", req);
+                    log::warn!("broadcast_tx: {:?}", req.clone());
     
-                    println!("收到了tx请求");
-                    println!("{:?}", req.tx.clone());
+                    println!("收到了转账请求");
+                    println!("{:?}", req.clone());
     
-                    if let Err(e) = abci_tx.send(req.tx.clone().parse::<u64>().unwrap()).await {
+                    // 将整个Transaction结构发送到共识层
+                    if let Err(e) = abci_tx.send(req.clone()).await {
                         Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
                     }else{
                         Ok::<_, Rejection>(format!("broadcast_tx: {:?}", req))
