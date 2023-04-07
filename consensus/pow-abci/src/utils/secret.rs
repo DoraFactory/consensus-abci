@@ -5,7 +5,7 @@ use crypto::ripemd160::Ripemd160;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_FIXED_SIGNING, ECDSA_P256_SHA256_FIXED};
 use ring::digest::{Context, SHA256};
-
+use bs58::*;
 
 pub fn new_private_key() -> Vec<u8> {
     let rng = SystemRandom::new();

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 
-use crate::QueryInfo;
+use crate::{QueryInfo, Transaction, ProofOfWork};
 
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
@@ -10,6 +10,8 @@ use tendermint_proto::abci::{
     RequestInitChain, RequestQuery, ResponseQuery, Event, EventAttribute
 };
 use tendermint_proto::types::Header;
+
+pub const DIFFICULTY: usize = 10;
 
 pub struct Engine {
     pub app_address: SocketAddr,
@@ -24,14 +26,19 @@ impl Engine {
     pub fn new(
         app_address: SocketAddr,
         rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
-        last_app_hash: Vec<u8>,
+        // last_app_hash: Vec<u8>,
     ) -> Self {
         let mut echo_client = ClientBuilder::default().connect(&app_address).unwrap();
 
-        let last_block_height = echo_client
+        // test the connection with info and record the height
+/*         let last_block_height = echo_client
             .info(RequestInfo::default())
             .map(|res| res.last_block_height)
-            .unwrap_or_default();
+            .unwrap_or_default(); */
+
+        let resp_info = echo_client.info(RequestInfo::default()).unwrap();
+        let last_block_height = resp_info.last_block_height;
+        let last_app_hash = resp_info.last_block_app_hash;
 
         // Instantiate a new client to not be locked in an Info connection
         let client = ClientBuilder::default().connect(&app_address).unwrap();
@@ -46,17 +53,16 @@ impl Engine {
         }
     }
 
-    // pub async fn run(&mut self, mut rx_output: Receiver<u64>) -> eyre::Result<()> {
-    pub async fn run(&mut self, mut rx_output: Receiver<u64>) -> eyre::Result<()> {
+    pub async fn run(&mut self, mut rx_output: Receiver<Transaction>) -> eyre::Result<()> {
         self.init_chain()?;
         
         loop {
             println!("listening and consuming the coming requests....");
             tokio::select! {
-                Some(count) = rx_output.recv() => {
+                Some(transaction) = rx_output.recv() => {
                     println!("--------------------------------");
                     println!("send transaction and consensus start...");
-                    self.handle_count(count)?;
+                    self.handle_count(transaction)?;
                     println!("--------------------------------");
 
                 },
@@ -72,7 +78,7 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_count(&mut self, count: u64) -> eyre::Result<()> {
+    fn handle_count(&mut self, trans: Transaction) -> eyre::Result<()> {
         // increment block
         let proposed_block_height = self.last_block_height + 1;
 
@@ -80,7 +86,7 @@ impl Engine {
 
         self.begin_block(proposed_block_height)?;
 
-        self.aggrement_tx(count)?;
+        self.aggrement_tx(trans)?;
 
         self.end_block(proposed_block_height)?;
 
@@ -93,9 +99,17 @@ impl Engine {
 
 
     //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
-    fn aggrement_tx(&mut self, count: u64) -> eyre::Result<()> {
+    fn aggrement_tx(&mut self, trans: Transaction) -> eyre::Result<()> {
         //TODO: 达到目标难度值，然后打包，将交易deliver
-        self.deliver_tx(count)
+        // step1：先计算达到目标难度
+        let pow = ProofOfWork::new(DIFFICULTY);
+        println!("创建了一个pow的难题,现在开始计算");
+        pow.run(&trans);
+
+        // step2: 得到一个batch区块(此块非blockchain的块，而是一个节点先打包的块，需要交给app对其中的交易进行状态转换)
+        // 这里暂时没有写mempool，所以会把发送过来的一笔交易直接打包为块，发送出去
+        self.deliver_tx(trans)
+
     }
 
 
@@ -115,17 +129,7 @@ impl Engine {
             prove: req_prove,
         })?;
 
-        // info test
-/*         let resp = self.req_client.info(RequestInfo {
-            version: Default::default(),
-            block_version: Default::default(),
-            p2p_version: Default::default(),
-        });
-
-        println!("在这里获取查询响应: {:?}", resp.unwrap()); */
-
         // 通过一个单通道单消费者(oneshoter)向用户返回响应结果
-
         println!("the received response is: {:?}", resp);
 
         let resp_key = match std::str::from_utf8(&resp.key) {
@@ -152,12 +156,17 @@ impl Engine {
 
 impl Engine {
     /// Calls the `InitChain` hook on the app, ignores "already initialized" errors.
-    pub fn init_chain(&mut self) -> eyre::Result<()> {
-        let mut client = ClientBuilder::default().connect(&self.app_address)?;
-        match client.init_chain(Default::default()) {
-            Ok(resp) => {
+    pub fn init_chain(&mut self,) -> eyre::Result<()> {
+        println!("start init chain request");
+        let mut client = ClientBuilder::default().connect(&self.app_address).unwrap();
+        //TODO: 后续需要做改动，把初始化账户的功能放在这里（钱包和genesis account的功能是应该放在共识层的）
+/*         match client.init_chain(Default::default()) {
+/*             Ok(resp) => {
                 println!("Init chain successfully! Hello ABCI.");
                 self.last_app_hash = resp.app_hash
+            } */
+            Ok(_) => {
+                println!("Init chain successfully! Hello ABCI.")
             }
             Err(err) => {
                 // ignore errors about the chain being uninitialized
@@ -167,7 +176,11 @@ impl Engine {
                 }
                 eyre::bail!(err)
             }
-        };
+        };  */
+
+        // let resp = client.init_chain();
+        // println!("{:?}", resp);
+
         Ok(())
     }
 
@@ -191,11 +204,11 @@ impl Engine {
     }
 
     /// Calls the `DeliverTx` hook on the ABCI app.
-    fn deliver_tx(&mut self, tx: u64) -> eyre::Result<()> {
+    fn deliver_tx(&mut self, tx: Transaction) -> eyre::Result<()> {
         // println!("deliver的交易传入为:{:?}", tx);
         // let tx_req = parse_int_to_bytes(tx).unwrap();
         
-        self.client.deliver_tx(RequestDeliverTx { tx: counter_to_bytes(tx).to_vec() })?;
+        self.client.deliver_tx(RequestDeliverTx { tx: tx.to_bytes() })?;
         Ok(())
     }
 

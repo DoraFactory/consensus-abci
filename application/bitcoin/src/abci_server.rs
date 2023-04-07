@@ -35,12 +35,15 @@ impl<T: Clone + Send + Sync> ConsensusConnection<T> {
 #[async_trait]
 impl<T: Clone + Send + Sync> Consensus for ConsensusConnection<T> {
     async fn init_chain(&self, _init_chain_request: RequestInitChain) -> ResponseInitChain {
-        // Node启动新实例的时候会产生创世区块，所以这里只需要把最新的区块的信息返回就可以
+        //TODO: 这里后续需要改动，需要把创建交易,而且一开始创世的时候，不做工作量证明，直接出块.........
+        // 现在的做法是想直接从已有的块中进行获取，作为最新块，但是不可取，这里会出现 `when chain is already initialized`
+
         let mut current_state_lock = self.current_state.lock().await;
         let mut current_state = current_state_lock.as_mut().unwrap();
 
         // update the latest block hash, in here, this is genesis block hash
         let app_hash = Arc::clone(&current_state.bc.app_hash).read().unwrap().clone().as_bytes().to_vec();
+        println!("init chain in abci server");
         
         ResponseInitChain{
             app_hash,
@@ -181,9 +184,26 @@ impl<T: Clone + Send + Sync> Info for InfoConnection<T> {
             Ok(s) => s,
             Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
         };
-        ResponseQuery{
-            ..Default::default()
+        
+        info!("用户想要查询的是:{:?}",key);
+
+        // 判断用户查询的是什么，先用最新的区块哈希做判断
+        if key == "latest_block_hash" {
+            let app_hash = &*(*state).bc.app_hash.read().unwrap();
+            return ResponseQuery { 
+                code: 0,
+                log: "exists".to_string(),
+                info: "".to_string(),
+                index: 0,
+                key: key.into(),
+                value: app_hash.clone().into_bytes(),
+                proof_ops: None,
+                height: (*state).bc.height.load(Ordering::SeqCst) as i64,
+                codespace: "".to_string(),
+            }
         }
+
+        Default::default()
     }
 }
 

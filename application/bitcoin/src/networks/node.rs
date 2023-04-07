@@ -32,24 +32,6 @@ pub struct NodeState<T = SledDb> where T: std::clone::Clone{
     pub swarm: Arc<Mutex<Swarm<BlockchainBehaviour>>>,
 }
 
-/*
-
-我现在有一个结构
-pub struct NodeState<T = SledDb> {
-    pub app: AppState,
-    pub msg_receiver: mpsc::UnboundedReceiver<Messages>,
-    pub swarm: Swarm<BlockchainBehaviour>,
-}
-
-pub struct AppState {
-    pub bc: Blockchain<T>,
-    pub utxos: UTXOSet<T>,
-}
-
-一开始，我会启动这个NodeState实例，然后在每次更新APpState中的bc的时候，调用swarm的方法进行广播，这种要怎么做呢？
-
-*/
-
 impl<T: Storage + std::clone::Clone> NodeState<T> {
     pub async fn new(storage: Arc<T>, genesis_account: &str) -> Result<Self> {
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
@@ -71,12 +53,15 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         let mut utxos = UTXOSet::new(storage);
         info!("create utxos...");
 
+        //TODO: should be removed
+        //======================================================================
         info!("start create genesis block...");
         // create genesis block with the genesis account
         bc.create_genesis_block(addr.as_str());
 
         // update utxo
         utxos.reindex(&bc).await?;
+        //======================================================================
         info!("Everything is ok, you have created you first bitmint chain!");
 
         // create a new Node
