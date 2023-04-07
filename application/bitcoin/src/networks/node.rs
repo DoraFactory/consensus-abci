@@ -26,8 +26,6 @@ use abci::async_api::Server;
 pub struct NodeState<T = SledDb> where T: std::clone::Clone{
     pub bc: Blockchain<T>,
     pub utxos: UTXOSet<T>,
-    /*     pub msg_receiver: mpsc::UnboundedReceiver<Messages>,
-    pub swarm: Swarm<BlockchainBehaviour> */
     pub msg_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Messages>>>,
     pub swarm: Arc<Mutex<Swarm<BlockchainBehaviour>>>,
 }
@@ -39,7 +37,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         let walle_name = String::from(genesis_account);
         let mut wallet_app = WALLET_MAP.lock().await;
 
-        // 新建节点的时候，就创建账户，并将其塞进创世区块
+        // TODO: should be removed
         let addr = wallet_app.entry(walle_name.clone()).or_insert_with(|| {
             let mut wallets = Wallets::new().unwrap();
             let addr = wallets.create_wallet();
@@ -57,7 +55,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         //======================================================================
         info!("start create genesis block...");
         // create genesis block with the genesis account
-        bc.create_genesis_block(addr.as_str());
+        bc.create_genesis_block(addr.as_str()).await;
 
         // update utxo
         utxos.reindex(&bc).await?;
@@ -83,7 +81,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
 
     async fn sync(&mut self) -> Result<()> {
         let version = Messages::Version {
-            best_height: self.bc.get_height(),
+            best_height: self.bc.get_height().await,
             from_addr: PEER_ID.to_string(),
         };
 
@@ -101,32 +99,11 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         Ok(())
     }
 
-    async fn transfer(&mut self, from: &str, to: &str, amount: i32) -> Result<()> {
-        // 这一部分应该是在deliver_tx
-        let tx = Transaction::new_utxo(from, to, amount, &self.utxos, &self.bc).await;
-        let txs = vec![tx];
-        let block = self.bc.mine_block(&txs).await;
-        self.utxos.reindex(&self.bc).await.unwrap();
-
-        let b = Messages::Block { block };
-        let line = serde_json::to_vec(&b)?;
-
-        let swarm_arc = self.swarm.clone();
-        let mut swarm_lock = swarm_arc.lock().await;
-        let mut swarm = swarm_lock.deref_mut();
-        swarm
-            .behaviour_mut()
-            .gossipsub
-            .publish(BLOCK_TOPIC.clone(), line)
-            .unwrap();
-        Ok(())
-    }
-
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
-        if self.bc.get_height() > best_height {
+        if self.bc.get_height().await > best_height {
             let blocks = Messages::Blocks {
                 blocks: self.bc.get_blocks().await,
-                height: self.bc.get_height(),
+                height: self.bc.get_height().await,
                 to_addr: from_addr,
             };
             let msg = serde_json::to_vec(&blocks)?;
@@ -150,7 +127,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         to_addr: String,
         height: usize,
     ) -> Result<()> {
-        if PEER_ID.to_string() == to_addr && self.bc.get_height() < height {
+        if PEER_ID.to_string() == to_addr && self.bc.get_height().await < height {
             for block in blocks {
                 self.bc.add_block(block).await?;
             }

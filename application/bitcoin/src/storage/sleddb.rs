@@ -27,16 +27,14 @@ impl SledDb {
 #[async_trait]
 impl Storage for SledDb {
     async fn get_app_hash(&self) -> Result<Option<String>, BlockchainError> {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         let result = db.get(APP_HASH_KEY)?.map(|v| deserialize::<String>(&v.to_vec()));
         result.map_or(Ok(None), |v| v.map(Some))
     }
 
     async fn get_block(&self, key: &str) -> Result<Option<Block>, BlockchainError> {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         let name = Self::get_full_key(TABLE_OF_BLOCK, key);
         let result = db.get(name)?.map(|v| v.into());
@@ -44,17 +42,18 @@ impl Storage for SledDb {
     }
 
     async fn get_height(&self) -> Result<Option<usize>, BlockchainError> {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         let result = db.get(HEIGHT)?.map(|v| deserialize::<usize>(&v.to_vec()));
         result.map_or(Ok(None), |v| v.map(Some))
     }
 
     async fn update_blocks(&self, key: &str, block: &Block, height: usize) {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        println!("我要开始写数据了");
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
+        println!("block is {:?}", block);
+        println!("height is {:?}", height);
         let _: TransactionResult<(), ()> = db.transaction(|db| {
             let name = Self::get_full_key(TABLE_OF_BLOCK, key);
             db.insert(name.as_str(), serialize(block).unwrap())?;
@@ -66,8 +65,7 @@ impl Storage for SledDb {
     }
 
     async fn get_block_iter(&self) -> Result<Box<dyn Iterator<Item = Block>>, BlockchainError> {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
 
         let prefix = format!("{}:", TABLE_OF_BLOCK);
@@ -77,8 +75,7 @@ impl Storage for SledDb {
 
     async fn get_utxo_set(&self) -> HashMap<String, Vec<crate::Txoutput>> {
 
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
 
         let mut map = HashMap::new();
@@ -98,8 +95,7 @@ impl Storage for SledDb {
     }
 
     async fn write_utxo(&self, txid: &str, outs: Vec<crate::Txoutput>) -> Result<(), BlockchainError> {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
 
         let name = format!("{}:{}", UTXO_SET, txid);
@@ -108,8 +104,8 @@ impl Storage for SledDb {
     }
 
     async fn clear_utxo_set(&self) {
-        let db_arc = self.db.clone();
-        let mut db_lock = db_arc.lock().await;
+        println!("执行clear utxo");
+        let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         
         let prefix = format!("{}:", UTXO_SET);

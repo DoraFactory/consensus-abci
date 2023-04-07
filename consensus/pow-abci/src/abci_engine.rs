@@ -2,12 +2,12 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 
-use crate::{QueryInfo, Transaction, ProofOfWork};
+use crate::{ProofOfWork, QueryInfo, Transaction};
 
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
-    RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock, RequestInfo,
-    RequestInitChain, RequestQuery, ResponseQuery, Event, EventAttribute
+    Event, EventAttribute, RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock,
+    RequestInfo, RequestInitChain, RequestQuery, ResponseQuery,
 };
 use tendermint_proto::types::Header;
 
@@ -31,13 +31,14 @@ impl Engine {
         let mut echo_client = ClientBuilder::default().connect(&app_address).unwrap();
 
         // test the connection with info and record the height
-/*         let last_block_height = echo_client
-            .info(RequestInfo::default())
-            .map(|res| res.last_block_height)
-            .unwrap_or_default(); */
+        /*         let last_block_height = echo_client
+        .info(RequestInfo::default())
+        .map(|res| res.last_block_height)
+        .unwrap_or_default(); */
 
         let resp_info = echo_client.info(RequestInfo::default()).unwrap();
         let last_block_height = resp_info.last_block_height;
+        println!("当前区块高度为:{:?}", last_block_height);
         let last_app_hash = resp_info.last_block_app_hash;
 
         // Instantiate a new client to not be locked in an Info connection
@@ -55,7 +56,7 @@ impl Engine {
 
     pub async fn run(&mut self, mut rx_output: Receiver<Transaction>) -> eyre::Result<()> {
         self.init_chain()?;
-        
+
         loop {
             println!("listening and consuming the coming requests....");
             tokio::select! {
@@ -90,13 +91,12 @@ impl Engine {
 
         self.end_block(proposed_block_height)?;
 
-        println!("交易发送成功,当前的app hash为:{:?}", self.last_app_hash);
-
         self.commit()?;
+
+        println!("交易发送成功,当前的app hash为:{:?}", self.last_app_hash);
 
         Ok(())
     }
-
 
     //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
     fn aggrement_tx(&mut self, trans: Transaction) -> eyre::Result<()> {
@@ -109,9 +109,7 @@ impl Engine {
         // step2: 得到一个batch区块(此块非blockchain的块，而是一个节点先打包的块，需要交给app对其中的交易进行状态转换)
         // 这里暂时没有写mempool，所以会把发送过来的一笔交易直接打包为块，发送出去
         self.deliver_tx(trans)
-
     }
-
 
     fn handle_abci_query(
         &mut self,
@@ -138,7 +136,6 @@ impl Engine {
         };
         println!("resp key为:{:?}", resp_key);
 
-
         let resp_value = match std::str::from_utf8(&resp.value) {
             Ok(s) => s,
             Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
@@ -156,27 +153,27 @@ impl Engine {
 
 impl Engine {
     /// Calls the `InitChain` hook on the app, ignores "already initialized" errors.
-    pub fn init_chain(&mut self,) -> eyre::Result<()> {
+    pub fn init_chain(&mut self) -> eyre::Result<()> {
         println!("start init chain request");
         let mut client = ClientBuilder::default().connect(&self.app_address).unwrap();
         //TODO: 后续需要做改动，把初始化账户的功能放在这里（钱包和genesis account的功能是应该放在共识层的）
-/*         match client.init_chain(Default::default()) {
-/*             Ok(resp) => {
-                println!("Init chain successfully! Hello ABCI.");
-                self.last_app_hash = resp.app_hash
-            } */
-            Ok(_) => {
-                println!("Init chain successfully! Hello ABCI.")
-            }
-            Err(err) => {
-                // ignore errors about the chain being uninitialized
-                if err.to_string().contains("already initialized") {
-                    log::warn!("{}", err);
-                    return Ok(());
-                }
-                eyre::bail!(err)
-            }
-        };  */
+        /*         match client.init_chain(Default::default()) {
+        /*             Ok(resp) => {
+                        println!("Init chain successfully! Hello ABCI.");
+                        self.last_app_hash = resp.app_hash
+                    } */
+                    Ok(_) => {
+                        println!("Init chain successfully! Hello ABCI.")
+                    }
+                    Err(err) => {
+                        // ignore errors about the chain being uninitialized
+                        if err.to_string().contains("already initialized") {
+                            log::warn!("{}", err);
+                            return Ok(());
+                        }
+                        eyre::bail!(err)
+                    }
+                };  */
 
         // let resp = client.init_chain();
         // println!("{:?}", resp);
@@ -207,8 +204,9 @@ impl Engine {
     fn deliver_tx(&mut self, tx: Transaction) -> eyre::Result<()> {
         // println!("deliver的交易传入为:{:?}", tx);
         // let tx_req = parse_int_to_bytes(tx).unwrap();
-        
-        self.client.deliver_tx(RequestDeliverTx { tx: tx.to_bytes() })?;
+
+        self.client
+            .deliver_tx(RequestDeliverTx { tx: tx.to_bytes() })?;
         Ok(())
     }
 
@@ -218,18 +216,21 @@ impl Engine {
     // to the App logic on the end of each block.
     fn end_block(&mut self, height: i64) -> eyre::Result<()> {
         let req = RequestEndBlock { height };
-        let resp = self.client.end_block(req)?;
-        
+        let _resp = self.client.end_block(req)?;
+
         // save the ened block hash(app hash) returned by the abci server
-        let event: Event = resp.events.first().unwrap().clone();
+        /*         let event: Event = resp.events.first().unwrap().clone();
         let event_attribute: EventAttribute = event.attributes.first().unwrap().clone();
-        self.last_app_hash = event_attribute.value.clone();
+        self.last_app_hash = event_attribute.value.clone(); */
         Ok(())
     }
 
     /// Calls the `Commit` hook on the ABCI app.
     fn commit(&mut self) -> eyre::Result<()> {
-        self.client.commit()?;
+        let resp = self.client.commit().unwrap();
+        let app_hash = resp.data;
+        println!("committed app hash{:?}", app_hash);
+        self.last_app_hash = app_hash;
         Ok(())
     }
 }
@@ -237,6 +238,5 @@ impl Engine {
 pub fn counter_to_bytes(counter: u64) -> [u8; 8] {
     counter.to_be_bytes()
 }
-
 
 // pub type Transaction = Vec<u8>;
