@@ -39,30 +39,6 @@ async fn main() -> std::io::Result<()> {
                 .args_from_usage("--db=<string> This is the data dir for the current peer")
                 .args_from_usage("--port=<string> This is a setting of ABCI server(app) port, default is 26658 and you can customize it.")
         )
-/*         .subcommand(
-            SubCommand::with_name("tx")
-                    .about("This is a setting of")
-        )
-        //TODO: 上面都是启动一个链的重要操作
-        .subcommand(
-            SubCommand::with_name("genesis")
-                .about("To see if the genesis block was created in bitmint.")
-        )
-        .subcommand(
-            SubCommand::with_name("blocks")
-                .about("query the all blocks in bitmint.")
-        )
-        .subcommand(
-            SubCommand::with_name("create_wallet")
-                .about("create a new bitcoin wallet.")
-        )
-        .subcommand(
-            SubCommand::with_name("transfer_tx")
-                .about("transfer from one user to another user")
-                .args_from_usage("--from=<String>> 'The sender address in bitmint.'")
-                .args_from_usage("--to=<String>> 'The receiver address in bitmint.'")
-                .args_from_usage("--amount=<String> 'The amount of this transfer'")
-        ) */
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
 

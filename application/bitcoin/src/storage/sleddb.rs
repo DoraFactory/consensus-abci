@@ -49,7 +49,6 @@ impl Storage for SledDb {
     }
 
     async fn update_blocks(&self, key: &str, block: &Block, height: usize) {
-        println!("我要开始写数据了");
         let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         println!("block is {:?}", block);
@@ -104,7 +103,6 @@ impl Storage for SledDb {
     }
 
     async fn clear_utxo_set(&self) {
-        println!("执行clear utxo");
         let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         

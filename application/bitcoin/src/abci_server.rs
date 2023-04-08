@@ -1,6 +1,7 @@
 use bincode::{deserialize, serialize};
 use reqwest::Response;
 use std::{
+    ops::DerefMut,
     os::{macos::raw::stat, unix::prelude::OsStrExt},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -18,7 +19,9 @@ use abci::{
 use tracing::info;
 
 // use crate::T;
-use crate::{Block, Blockchain, NodeState, ReqTrans, SledDb, Storage, Transaction};
+use crate::{
+    Block, Blockchain, Messages, NodeState, ReqTrans, SledDb, Storage, Transaction, BLOCK_TOPIC,
+};
 
 /// consensus connection
 // #[derive(Debug)]
@@ -71,32 +74,56 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
     }
 
     async fn deliver_tx(&self, deliver_tx_request: RequestDeliverTx) -> ResponseDeliverTx {
-        let mut current_state_lock = self.current_state.lock().await;
-        let mut current_state =  current_state_lock.as_mut().unwrap();
+        let swarm_mutex;
+        let block;
+        {
+            let mut current_state_lock = self.current_state.lock().await;
+            let mut current_state = current_state_lock.as_mut().unwrap();
 
-        let tx: ReqTrans = deserialize(deliver_tx_request.tx.as_slice()).unwrap();
-        println!("交易为{:?}", tx);
+            let tx: ReqTrans = deserialize(deliver_tx_request.tx.as_slice()).unwrap();
+            println!("交易为{:?}", tx);
 
-        // let mut state = current_state.clone();
+            // let mut state = current_state.clone();
 
-        let utxos = Transaction::new_utxo(
-            &(tx.from),
-            &(tx.to),
-            tx.amount.parse::<i32>().unwrap(),
-            &(current_state.utxos),
-            &(current_state.bc),
-        )
-        .await;
-        let txs = vec![utxos];
+            let utxos = Transaction::new_utxo(
+                &(tx.from),
+                &(tx.to),
+                tx.amount.parse::<i32>().unwrap(),
+                &(current_state.utxos),
+                &(current_state.bc),
+            )
+            .await;
+            let txs = vec![utxos];
 
-        // 构造区块
-        let block = current_state.bc.construct_block(&txs).await;
+            // 构造区块
+            block = current_state.bc.construct_block(&txs).await;
 
-        let _ = current_state.utxos.reindex(&(current_state.bc)).await.unwrap();
+            let _ = current_state
+                .utxos
+                .reindex(&(current_state.bc))
+                .await
+                .unwrap();
 
-        //TODO: swarm broadcast
-        //
+            // get swarm
+            swarm_mutex = Arc::clone(&current_state.swarm);
 
+        }
+
+        // p2p broadcast
+        let msg = Messages::Block { block };
+        let data = serde_json::to_vec(&msg).unwrap();
+        println!("data is: {:?}", data);
+        let mut swarm_lock = swarm_mutex.lock().await;
+        println!("这");
+        let mut swarm = swarm_lock.deref_mut();
+        println!("这这");
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .publish(BLOCK_TOPIC.clone(), data)
+            //TODO: 这里需要处理好错误，如果没有其他的peer，会报错
+            .unwrap();
+        println!("这里这里.....");
         Default::default()
     }
 
@@ -110,6 +137,9 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
     async fn commit(&self, _commit_request: RequestCommit) -> ResponseCommit {
         let mut current_state_lock = self.current_state.lock().await;
         let mut current_state = current_state_lock.as_mut().unwrap();
+
+        // print blocks info
+        current_state.bc.blocks_info().await;
 
         ResponseCommit {
             data: current_state.bc.get_app_hash().await.as_bytes().to_vec(),

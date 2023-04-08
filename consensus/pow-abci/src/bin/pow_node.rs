@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         .subcommand(
             SubCommand::with_name("run")
             //TODO:
-            // .args_from_usage("--account=<string> 'This is a tag to set the initial account who hold the all assets'")
+            // .args_from_usage("--port=<string> 'This is a abci client server'")
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();

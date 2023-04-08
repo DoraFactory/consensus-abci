@@ -13,7 +13,7 @@ use warp::{Filter, Rejection};
 
 use core::panic;
 use std::net::SocketAddr;
-
+use tracing::info;
 /// Client Api which will provide a exposed port(eg:26657) for users to get and post msg
 pub struct ClientApi<T> {
     // commonly: 26657 port
@@ -38,17 +38,12 @@ impl ClientApi<ResponseQuery> {
         self,
         tx_req: Sender<Transaction>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
-        println!("进来咯");
         let route_broadcast_tx = warp::path("broadcast_tx")
             .and(warp::query::<Transaction>())
             .and_then( move |req: Transaction| {
                 let abci_tx = tx_req.clone();
-                println!("didididiid");
                 async move {
-                    log::warn!("broadcast_tx: {:?}", req.clone());
-    
-                    println!("收到了转账请求");
-                    println!("{:?}", req.clone());
+                    println!("broadcast tx: {:?}", req.clone());
     
                     // 将整个Transaction结构发送到共识层
                     if let Err(e) = abci_tx.send(req.clone()).await {
@@ -64,7 +59,7 @@ impl ClientApi<ResponseQuery> {
             .and_then(move |req: QueryInfo| {
                 let tx_abci_queries = self.req.clone();
                 async move {
-                    log::warn!("abci_query: {:?}", req);
+                    println!("query request: {:?}", req.clone());
 
                     // 创建一个单生产者单消费者的管道，向ABCI client发送一个消息，这个消息是一个元组(管道，req)
                     let (tx_query, rx_query) = oneshot_channel();

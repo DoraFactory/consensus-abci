@@ -30,12 +30,6 @@ impl Engine {
     ) -> Self {
         let mut echo_client = ClientBuilder::default().connect(&app_address).unwrap();
 
-        // test the connection with info and record the height
-        /*         let last_block_height = echo_client
-        .info(RequestInfo::default())
-        .map(|res| res.last_block_height)
-        .unwrap_or_default(); */
-
         let resp_info = echo_client.info(RequestInfo::default()).unwrap();
         let last_block_height = resp_info.last_block_height;
         println!("当前区块高度为:{:?}", last_block_height);
@@ -98,9 +92,9 @@ impl Engine {
         Ok(())
     }
 
-    //TODO: 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
+    // 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
     fn aggrement_tx(&mut self, trans: Transaction) -> eyre::Result<()> {
-        //TODO: 达到目标难度值，然后打包，将交易deliver
+        // 达到目标难度值，然后打包，将交易deliver
         // step1：先计算达到目标难度
         let pow = ProofOfWork::new(DIFFICULTY);
         println!("创建了一个pow的难题,现在开始计算");
@@ -229,7 +223,6 @@ impl Engine {
     fn commit(&mut self) -> eyre::Result<()> {
         let resp = self.client.commit().unwrap();
         let app_hash = resp.data;
-        println!("committed app hash{:?}", app_hash);
         self.last_app_hash = app_hash;
         Ok(())
     }

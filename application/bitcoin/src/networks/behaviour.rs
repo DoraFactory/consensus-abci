@@ -45,10 +45,10 @@ impl NetworkBehaviourEventProcess<GossipsubEvent> for BlockchainBehaviour {
                 }
             },
             GossipsubEvent::Subscribed { peer_id, topic} => {
-                info!("Subscribe topic: {} with id: {}", topic, peer_id);
+                info!("Subscribe topic: {} with peer id: {}", topic, peer_id);
             },
             GossipsubEvent::Unsubscribed { peer_id, topic} => {
-                info!("Unsubscribe topic: {} with id: {}", topic, peer_id);
+                info!("Unsubscribe topic: {} with peer id: {}", topic, peer_id);
             },
             GossipsubEvent::GossipsubNotSupported { .. } => todo!(),
         }
@@ -60,13 +60,13 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for BlockchainBehaviour {
         match event {
             MdnsEvent::Discovered(list) => {
                 for (id, addr) in list {
-                    println!("Got peer: {} with addr {}", &id, &addr);
+                    info!("Got peer: {} with addr {}", &id, &addr);
                     self.gossipsub.add_explicit_peer(&id);
                 }
             },
             MdnsEvent::Expired(list) => {
                 for (id, addr) in list {
-                    println!("Removed peer: {} with addr {}", &id, &addr);
+                    info!("Removed peer: {} with addr {}", &id, &addr);
                     self.gossipsub.remove_explicit_peer(&id);
                 }
             }
