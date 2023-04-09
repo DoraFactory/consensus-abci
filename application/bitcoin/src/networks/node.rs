@@ -6,7 +6,7 @@ use crate::{
 use anyhow::{Error, Result};
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use futures::{task::AtomicWaker, FutureExt, StreamExt};
-use libp2p::{swarm::SwarmEvent, PeerId, Swarm};
+use libp2p::{gossipsub::MessageId, swarm::SwarmEvent, PeerId, Swarm};
 use std::io;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
@@ -15,6 +15,7 @@ use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
     spawn,
     sync::{mpsc, Mutex},
+    time::{sleep, interval, Duration},
 };
 use tracing::{error, info};
 
@@ -34,10 +35,10 @@ where
 }
 
 impl<T: Storage + std::clone::Clone> NodeState<T> {
-    pub async fn new(storage: Arc<T>, genesis_account: &str) -> Result<Self> {
+    pub async fn new(storage: Arc<T>, account: &str, sync_first: bool) -> Result<Self> {
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
 
-        let walle_name = String::from(genesis_account);
+        let walle_name = String::from(account);
         let mut wallet_app = WALLET_MAP.lock().await;
 
         // TODO: should be removed
@@ -51,22 +52,25 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         //TODO: 如果是非第一个节点，直接同步区块就行，不需要创建
 
         let mut bc = Blockchain::new(storage.clone()).await;
-        info!("setup blockchain...");
+        info!("setup bitmint...");
 
         let mut utxos = UTXOSet::new(storage);
         info!("create utxos...");
 
-        //TODO: should be removed
-        //======================================================================
-        info!("start create genesis block...");
-        // create genesis block with the genesis account
-        bc.create_genesis_block(addr.as_str()).await;
-
-        // update utxo
-        utxos.reindex(&bc).await?;
-        //======================================================================
-        info!("Everything is ok, you have created you first bitmint chain!");
-
+        if !sync_first {
+            //TODO: should be removed
+            //======================================================================
+            info!("start create genesis block...");
+            // create genesis block with the genesis account
+            bc.create_genesis_block(addr.as_str()).await;
+            // update utxo
+            utxos.reindex(&bc).await?;
+            //======================================================================
+            info!("Everything is ok, you have created you first bitmint chain!");
+        } else {
+            // 这里什么都不做，后面start的时候进行sync
+            info!("Prepare Syncing block from the exist peer nodes, dialing....");
+        }
         // create a new Node
         Ok(Self {
             bc,
@@ -86,7 +90,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         Ok(peers)
     } */
 
-    async fn sync(&mut self) -> Result<()> {
+    async fn sync(&mut self) -> Result<bool> {
         let version = Messages::Version {
             best_height: self.bc.get_height().await,
             from_addr: PEER_ID.to_string(),
@@ -97,13 +101,22 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         let swarm_arc = self.swarm.clone();
         let mut swarm_lock = swarm_arc.lock().await;
         let mut swarm = swarm_lock.deref_mut();
-        swarm
+
+        let publish_result = swarm
             .behaviour_mut()
             .gossipsub
-            .publish(BLOCK_TOPIC.clone(), line)
-            .unwrap();
+            .publish(BLOCK_TOPIC.clone(), line);
 
-        Ok(())
+        match publish_result {
+            Ok(message_id) => {
+                info!("sync successfully");
+                return Ok(true);
+            }
+            Err(e) => {
+                error!("Failed to sync block with error: {}", e);
+                return Ok(false);
+            }
+        }
     }
 
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
@@ -166,7 +179,6 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
 
     pub async fn start<U: Storage + std::clone::Clone>(
         &mut self,
-        matches: &ArgMatches<'_>,
         abci_server_address: SocketAddr,
     ) -> Result<()> {
         info!("开始启动节点...");
@@ -199,12 +211,28 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
 
         let swarm_arc = self.swarm.clone();
         drop(swarm_lock);
+
         loop {
-            //TODO: sync peer data
-            // self.sync().await?;
+
+            // sync peer data
+            let mut sync_node = self.clone();
+            match self.sync().await {
+                Ok(is_synced) => {
+                    if is_synced {
+                        info!("prepare syncing next block....");
+                    } else {
+                        info!("no block can be synced, continue to listening....");
+                    }
+                }
+                Err(err) => {
+                    error!("Error during sync: {}", err);
+                }
+            }
+
             let mut swarm_lock = swarm_arc.lock().await;
             let swarm = &mut *swarm_lock;
             let msg_receiver_arc = self.msg_receiver.clone();
+
             tokio::select! {
                 messages = async move{
                     let mut msg_receiver_lock = msg_receiver_arc.lock().await;
@@ -247,6 +275,10 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
                             info!("Unhandled event: {:?}", event);
                         }
                     }
+                },
+                _ = sleep(Duration::from_secs(7)) => {
+                    // println!("No match within 4 seconds, exiting...");
+                    continue;
                 }
             }
         }

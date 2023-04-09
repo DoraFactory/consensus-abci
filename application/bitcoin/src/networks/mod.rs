@@ -64,7 +64,6 @@ async fn create_swarm(topics: Vec<Topic>, msg_sender: mpsc::UnboundedSender<Mess
         behaviour.gossipsub.subscribe(topic).unwrap();
     }
 
-    //TODO: 这里生成的类型和之前不一样，有点问题？？？？
     let swarm = SwarmBuilder::new(transport, behaviour, PEER_ID.clone())
         .executor(Box::new(|fut| {
             tokio::spawn(fut);

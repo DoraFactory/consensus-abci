@@ -45,6 +45,8 @@ impl Block {
         // TODO: remove in the future and write in another way, bit and nonce should be passed here
         // 在这里我没传nonce，所以后面在区块里面的nonce都是0
         let pre_hash = serialize(&(block.get_header())).unwrap();
+
+        info!("block hash is {:?}", pre_hash);
         block.set_hash(hash_to_str(&pre_hash));
 
         block

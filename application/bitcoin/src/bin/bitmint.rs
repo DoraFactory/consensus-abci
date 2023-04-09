@@ -35,9 +35,10 @@ async fn main() -> std::io::Result<()> {
         .subcommand(
             SubCommand::with_name("initChain")
                 .about("Create a new chain")
-                .args_from_usage("--account=<string> 'This is a tag for the bitmint blockchain builder to set the initial account who hold the all assets'")
+                .args_from_usage("--account=<string> 'This is a tag for the bitmint blockchain builder to set the account(If you are the first node, it will be initial account who hold the all assets)'")
                 .args_from_usage("--db=<string> This is the data dir for the current peer")
                 .args_from_usage("--port=<string> This is a setting of ABCI server(app) port, default is 26658 and you can customize it.")
+                .args_from_usage("--sync=<string> This is an option used to indicate whether synchronization will do first. If you are the first node, set it false")
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
@@ -46,8 +47,9 @@ async fn main() -> std::io::Result<()> {
         ("initChain", Some(matches)) => {
             println!("{:?}", matches.value_of("db"));
             let path = matches.value_of("db").unwrap();
-            let genesis_account = matches.value_of("account").unwrap();
+            let account = matches.value_of("account").unwrap();
             let abci_server_port = matches.value_of("port").unwrap();
+            let sync_first = matches.value_of("sync").unwrap();
 
             // create peer db
             let path = current_dir().unwrap().join(String::from(path));
@@ -58,7 +60,7 @@ async fn main() -> std::io::Result<()> {
             let port = abci_server_port.parse::<u16>().unwrap();
             let abci_server_address = SocketAddr::new(ip, port);
 
-            run(db, genesis_account, abci_server_address, &matches).await;
+            run(db, account, abci_server_address, sync_first.parse::<bool>().unwrap()).await;
         },
         _ => unreachable!(),
     }
@@ -68,12 +70,12 @@ async fn main() -> std::io::Result<()> {
 
 pub async fn run<T: Storage + std::clone::Clone>(
     storage: Arc<T>,
-    genesis_account: &str,
+    account: &str,
     address: SocketAddr,
-    matches: &ArgMatches<'_>,
+    sync_first: bool,
 ) -> Result<()> {
-    let mut node = NodeState::new(storage, genesis_account).await.unwrap();
+    let mut node = NodeState::new(storage, account, sync_first).await.unwrap();
     // start the peer node
-    node.start::<T>(&matches, address).await.unwrap();
+    node.start::<T>(address).await.unwrap();
     Ok(())
 }

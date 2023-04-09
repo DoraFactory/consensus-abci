@@ -106,23 +106,30 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
 
             // get swarm
             swarm_mutex = Arc::clone(&current_state.swarm);
-
         }
 
         // p2p broadcast
         let msg = Messages::Block { block };
         let data = serde_json::to_vec(&msg).unwrap();
         println!("data is: {:?}", data);
+        //TODO: 这里出现了死锁！！！！！
         let mut swarm_lock = swarm_mutex.lock().await;
         println!("这");
         let mut swarm = swarm_lock.deref_mut();
         println!("这这");
-        swarm
+
+        let publish_result = swarm
             .behaviour_mut()
             .gossipsub
-            .publish(BLOCK_TOPIC.clone(), data)
-            //TODO: 这里需要处理好错误，如果没有其他的peer，会报错
-            .unwrap();
+            .publish(BLOCK_TOPIC.clone(), data);
+
+        //如果没有其他的peer，这里会给出错误警告，没有peer可以广播
+        match publish_result {
+            Ok(message) => {
+                println!("publish ")
+            }, 
+            Err(err) => println!("broad cast error with {:?}", err)
+        }
         println!("这里这里.....");
         Default::default()
     }
