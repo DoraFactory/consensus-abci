@@ -13,7 +13,6 @@ use warp::{Filter, Rejection};
 
 use core::panic;
 use std::net::SocketAddr;
-use tracing::info;
 /// Client Api which will provide a exposed port(eg:26657) for users to get and post msg
 pub struct ClientApi<T> {
     // commonly: 26657 port

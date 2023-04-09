@@ -61,7 +61,7 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
             .clone()
             .as_bytes()
             .to_vec();
-        println!("init chain in abci server");
+        info!("init chain in abci server");
 
         ResponseInitChain {
             app_hash,
@@ -81,7 +81,7 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
             let mut current_state = current_state_lock.as_mut().unwrap();
 
             let tx: ReqTrans = deserialize(deliver_tx_request.tx.as_slice()).unwrap();
-            println!("交易为{:?}", tx);
+            info!("交易为{:?}", tx);
 
             // let mut state = current_state.clone();
 
@@ -111,12 +111,9 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
         // p2p broadcast
         let msg = Messages::Block { block };
         let data = serde_json::to_vec(&msg).unwrap();
-        println!("data is: {:?}", data);
-        //TODO: 这里出现了死锁！！！！！
+
         let mut swarm_lock = swarm_mutex.lock().await;
-        println!("这");
         let mut swarm = swarm_lock.deref_mut();
-        println!("这这");
 
         let publish_result = swarm
             .behaviour_mut()
@@ -126,11 +123,10 @@ impl<T: Clone + Send + Sync + Storage> Consensus for ConsensusConnection<T> {
         //如果没有其他的peer，这里会给出错误警告，没有peer可以广播
         match publish_result {
             Ok(message) => {
-                println!("publish ")
+                info!("block has been published ")
             }, 
-            Err(err) => println!("broad cast error with {:?}", err)
+            Err(err) => info!("broad cast error with {:?}", err)
         }
-        println!("这里这里.....");
         Default::default()
     }
 

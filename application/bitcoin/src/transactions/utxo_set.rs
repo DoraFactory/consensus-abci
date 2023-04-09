@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-
+use tracing::info;
 use crate::{Storage, Blockchain, error::BlockchainError};
 
 #[derive(Debug, Default, Clone)]
@@ -28,7 +28,7 @@ impl<T: Storage> UTXOSet<T> {
         let mut accumulated = 0;
         let utxo_set = self.storage.get_utxo_set().await;
         
-        println!("utxo集合为{:?}", utxo_set);
+        info!("utxo集合为{:?}", utxo_set);
 
         for (txid, outs) in utxo_set.iter() {
             for (idx, out) in outs.iter().enumerate() {

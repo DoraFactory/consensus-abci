@@ -208,8 +208,6 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
 
         // 这边如果是0.0.0.0/tpc/0的话，会监听两个tcp地址：一个是本地127.0.0.1/tpc/xxx，另一个是局域网192.168.xx.xx/tcp/xxx
         swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
-
-        let swarm_arc = self.swarm.clone();
         drop(swarm_lock);
 
         loop {
@@ -229,10 +227,11 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
                 }
             }
 
-            let mut swarm_lock = swarm_arc.lock().await;
-            let swarm = &mut *swarm_lock;
+            let swarm_arc = self.swarm.clone();
+
             let msg_receiver_arc = self.msg_receiver.clone();
 
+            // drop(swarm_lock);
             tokio::select! {
                 messages = async move{
                     let mut msg_receiver_lock = msg_receiver_arc.lock().await;
@@ -253,7 +252,11 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
                         }
                     }
                 },
-                event = swarm_lock.select_next_some() => {
+                event = async move{
+                    let mut swarm_lock = swarm_arc.lock().await;
+                    let swarm = &mut *swarm_lock;
+                    swarm_lock.select_next_some().await
+                } => {
                     match event {
                         SwarmEvent::NewListenAddr{address, ..} => {
                             info!("Listening on {:?}", address);
@@ -277,7 +280,6 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
                     }
                 },
                 _ = sleep(Duration::from_secs(7)) => {
-                    // println!("No match within 4 seconds, exiting...");
                     continue;
                 }
             }

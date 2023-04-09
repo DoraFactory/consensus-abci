@@ -69,6 +69,6 @@ async fn create_swarm(topics: Vec<Topic>, msg_sender: mpsc::UnboundedSender<Mess
             tokio::spawn(fut);
         })).build();
     
-    println!("Exiting create_swarm...");
+    info!("Exiting create_swarm...");
     Ok(swarm)
 }

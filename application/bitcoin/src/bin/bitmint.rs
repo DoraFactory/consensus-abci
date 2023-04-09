@@ -8,7 +8,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
-use tracing::{subscriber::set_global_default, Level};
+use tracing::{subscriber::set_global_default, Level, info};
 use tracing_subscriber::FmtSubscriber;
 
 use abci::async_api::Server;
@@ -45,7 +45,7 @@ async fn main() -> std::io::Result<()> {
 
     match matches.subcommand() {
         ("initChain", Some(matches)) => {
-            println!("{:?}", matches.value_of("db"));
+            info!("{:?}", matches.value_of("db"));
             let path = matches.value_of("db").unwrap();
             let account = matches.value_of("account").unwrap();
             let abci_server_port = matches.value_of("port").unwrap();

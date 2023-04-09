@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 
 use crate::{ProofOfWork, QueryInfo, Transaction};
-
+use tracing::info;
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
     Event, EventAttribute, RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock,

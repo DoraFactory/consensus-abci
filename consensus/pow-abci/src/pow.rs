@@ -3,7 +3,6 @@ use futures::future::Select;
 use std::ops::Shl;
 use bigint::U256;
 use crate::{utils::{serialize, hash_to_u8, hash_to_str}, Transaction};
-
 const MAX_NONCE: usize = usize::MAX;
 
 pub struct ProofOfWork {
