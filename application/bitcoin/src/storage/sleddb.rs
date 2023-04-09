@@ -6,6 +6,7 @@ use std::ops::DerefMut;
 use async_trait::async_trait;
 
 use crate::{Storage, error::BlockchainError, Block, utils::{deserialize, serialize}, APP_HASH_KEY, TABLE_OF_BLOCK, HEIGHT, StorageIterator, UTXO_SET, Txoutput};
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct SledDb {
@@ -49,11 +50,10 @@ impl Storage for SledDb {
     }
 
     async fn update_blocks(&self, key: &str, block: &Block, height: usize) {
-        println!("我要开始写数据了");
         let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
-        println!("block is {:?}", block);
-        println!("height is {:?}", height);
+        info!("block is {:?}", block);
+        info!("height is {:?}", height);
         let _: TransactionResult<(), ()> = db.transaction(|db| {
             let name = Self::get_full_key(TABLE_OF_BLOCK, key);
             db.insert(name.as_str(), serialize(block).unwrap())?;
@@ -104,7 +104,6 @@ impl Storage for SledDb {
     }
 
     async fn clear_utxo_set(&self) {
-        println!("执行clear utxo");
         let mut db_lock = self.db.lock().await;
         let mut db = db_lock.deref_mut();
         

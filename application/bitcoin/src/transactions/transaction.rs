@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 
 use crate::{Txinput, Txoutput, utils::{serialize, hash_to_str, ecdsa_p256_sha256_sign_digest, ecdsa_p256_sha256_sign_verify}, UTXOSet, Storage, Wallets, hash_pub_key, Blockchain};
-
+use tracing::info;
 const SUBSIDY: i32= 10;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -37,11 +37,11 @@ impl Transaction {
         let wallets = Wallets::new().unwrap();
         let wallet = wallets.get_wallet(from).unwrap();
         let public_key_hash = hash_pub_key(wallet.get_public_key());
-        println!("发送方公钥为{:?}", public_key_hash);
+        info!("发送方公钥为{:?}", public_key_hash);
         
         let (accumulated, valid_outputs) = utxo_set.find_spendable_outputs(&public_key_hash, amount).await;
 
-        println!("发送方余额为{:?}", accumulated);
+        info!("发送方余额为{:?}", accumulated);
         if accumulated < amount {
             panic!("Error not enough funds");
         }

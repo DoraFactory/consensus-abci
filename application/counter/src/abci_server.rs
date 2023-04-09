@@ -49,7 +49,7 @@ impl Consensus for ConsensusConnection {
 
     async fn deliver_tx(&self, deliver_tx_request: RequestDeliverTx) -> ResponseDeliverTx {
 
-        println!("{:?}", deliver_tx_request.tx.clone());
+        info!("{:?}", deliver_tx_request.tx.clone());
         let new_counter = parse_bytes_to_counter(&deliver_tx_request.tx);
 
         if new_counter.is_err() {
@@ -79,7 +79,7 @@ impl Consensus for ConsensusConnection {
 
         current_state.counter = new_counter;
 
-        println!("新的count的状态为{:?}", new_counter.clone());
+        info!("新的count的状态为{:?}", new_counter.clone());
 
         //TODO: 这个需要修改一下，返回一些详细的信息
         // Default::default()

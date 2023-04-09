@@ -1,29 +1,33 @@
+use super::{create_swarm, BLOCK_TOPIC, PEER_ID, TRANX_TOPIC, WALLET_MAP};
 use crate::{
     blocks::Blockchain, Block, BlockchainBehaviour, Commands, Messages, SledDb, Storage,
     Transaction, UTXOSet, Wallets,
 };
 use anyhow::{Error, Result};
-use futures::{task::AtomicWaker, StreamExt};
-use libp2p::{swarm::SwarmEvent, PeerId, Swarm};
+use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
+use futures::{task::AtomicWaker, FutureExt, StreamExt};
+use libp2p::{gossipsub::MessageId, swarm::SwarmEvent, PeerId, Swarm};
 use std::io;
+use std::net::SocketAddr;
 use std::ops::DerefMut;
 use std::sync::Arc;
-use std::net::SocketAddr;
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader},
+    spawn,
     sync::{mpsc, Mutex},
+    time::{sleep, interval, Duration},
 };
 use tracing::{error, info};
-
-use super::{create_swarm, BLOCK_TOPIC, PEER_ID, TRANX_TOPIC, WALLET_MAP};
-use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 
 use crate::{ConsensusConnection, InfoConnection, MempoolConnection, SnapshotConnection};
 use abci::async_api::Server;
 
 // Node主要处理p2p网络同步
 #[derive(Clone)]
-pub struct NodeState<T = SledDb> where T: std::clone::Clone{
+pub struct NodeState<T = SledDb>
+where
+    T: std::clone::Clone,
+{
     pub bc: Blockchain<T>,
     pub utxos: UTXOSet<T>,
     pub msg_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Messages>>>,
@@ -31,10 +35,10 @@ pub struct NodeState<T = SledDb> where T: std::clone::Clone{
 }
 
 impl<T: Storage + std::clone::Clone> NodeState<T> {
-    pub async fn new(storage: Arc<T>, genesis_account: &str) -> Result<Self> {
+    pub async fn new(storage: Arc<T>, account: &str, sync_first: bool) -> Result<Self> {
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
 
-        let walle_name = String::from(genesis_account);
+        let walle_name = String::from(account);
         let mut wallet_app = WALLET_MAP.lock().await;
 
         // TODO: should be removed
@@ -45,30 +49,37 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
             addr
         });
 
+        //TODO: 如果是非第一个节点，直接同步区块就行，不需要创建
+
         let mut bc = Blockchain::new(storage.clone()).await;
-        info!("setup blockchain...");
+        info!("setup bitmint...");
 
         let mut utxos = UTXOSet::new(storage);
         info!("create utxos...");
 
-        //TODO: should be removed
-        //======================================================================
-        info!("start create genesis block...");
-        // create genesis block with the genesis account
-        bc.create_genesis_block(addr.as_str()).await;
-
-        // update utxo
-        utxos.reindex(&bc).await?;
-        //======================================================================
-        info!("Everything is ok, you have created you first bitmint chain!");
-
+        if !sync_first {
+            //TODO: should be removed
+            //======================================================================
+            info!("start create genesis block...");
+            // create genesis block with the genesis account
+            bc.create_genesis_block(addr.as_str()).await;
+            // update utxo
+            utxos.reindex(&bc).await?;
+            //======================================================================
+            info!("Everything is ok, you have created you first bitmint chain!");
+        } else {
+            // 这里什么都不做，后面start的时候进行sync
+            info!("Prepare Syncing block from the exist peer nodes, dialing....");
+        }
         // create a new Node
         Ok(Self {
             bc,
             utxos,
             msg_receiver: Arc::new(Mutex::new(msg_receiver)),
             swarm: Arc::new(Mutex::new(
-                create_swarm(vec![BLOCK_TOPIC.clone(), TRANX_TOPIC.clone()], msg_sender).await?,
+                create_swarm(vec![BLOCK_TOPIC.clone(), TRANX_TOPIC.clone()], msg_sender)
+                    .await
+                    .unwrap(),
             )),
         })
     }
@@ -79,7 +90,7 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         Ok(peers)
     } */
 
-    async fn sync(&mut self) -> Result<()> {
+    async fn sync(&mut self) -> Result<bool> {
         let version = Messages::Version {
             best_height: self.bc.get_height().await,
             from_addr: PEER_ID.to_string(),
@@ -90,13 +101,22 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         let swarm_arc = self.swarm.clone();
         let mut swarm_lock = swarm_arc.lock().await;
         let mut swarm = swarm_lock.deref_mut();
-        swarm
+
+        let publish_result = swarm
             .behaviour_mut()
             .gossipsub
-            .publish(BLOCK_TOPIC.clone(), line)
-            .unwrap();
+            .publish(BLOCK_TOPIC.clone(), line);
 
-        Ok(())
+        match publish_result {
+            Ok(message_id) => {
+                info!("sync successfully");
+                return Ok(true);
+            }
+            Err(e) => {
+                error!("Failed to sync block with error: {}", e);
+                return Ok(false);
+            }
+        }
     }
 
     async fn process_version_msg(&mut self, best_height: usize, from_addr: String) -> Result<()> {
@@ -157,15 +177,11 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
         Ok(())
     }
 
-    pub async fn start<U: Storage + std::clone::Clone>(&mut self, matches: &ArgMatches<'_>, abci_server_address: SocketAddr) -> Result<()> {
+    pub async fn start<U: Storage + std::clone::Clone>(
+        &mut self,
+        abci_server_address: SocketAddr,
+    ) -> Result<()> {
         info!("开始启动节点...");
-        let swarm_arc = self.swarm.clone();
-        let mut swarm_lock = swarm_arc.lock().await;
-        let mut swarm = swarm_lock.deref_mut();
-
-        let msg_receiver_arc = self.msg_receiver.clone();
-        let mut msg_receiver_lock = msg_receiver_arc.lock().await;
-        let mut msg_receiver = msg_receiver_lock.deref_mut();
 
         // generate state
         let committed_state: Arc<Mutex<NodeState<T>>> = Arc::new(Mutex::new(self.clone()));
@@ -180,35 +196,91 @@ impl<T: Storage + std::clone::Clone> NodeState<T> {
 
         // create a abci server
         let server = Server::new(consensus, mempool, info, snapshot);
-        // run abci server
-        server.run(abci_server_address).await?;
 
+        // run abci server
+        spawn(async move {
+            server.run(abci_server_address).await.unwrap();
+        });
+
+        // swarm info
+        let mut swarm_lock = self.swarm.lock().await;
+        let mut swarm = swarm_lock.deref_mut();
+
+        // 这边如果是0.0.0.0/tpc/0的话，会监听两个tcp地址：一个是本地127.0.0.1/tpc/xxx，另一个是局域网192.168.xx.xx/tcp/xxx
         swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
+        drop(swarm_lock);
+
         loop {
-            /*             let swarm_arc = self.swarm.clone();
-            let mut swarm_lock = swarm_arc.lock().await;
-            let mut swarm = swarm_lock.deref_mut(); */
-            self.sync().await?;
+
+            // sync peer data
+            let mut sync_node = self.clone();
+            match self.sync().await {
+                Ok(is_synced) => {
+                    if is_synced {
+                        info!("prepare syncing next block....");
+                    } else {
+                        info!("no block can be synced, continue to listening....");
+                    }
+                }
+                Err(err) => {
+                    error!("Error during sync: {}", err);
+                }
+            }
+
+            let swarm_arc = self.swarm.clone();
+
+            let msg_receiver_arc = self.msg_receiver.clone();
+
+            // drop(swarm_lock);
             tokio::select! {
-                messages = msg_receiver.recv() => {
+                messages = async move{
+                    let mut msg_receiver_lock = msg_receiver_arc.lock().await;
+                    let msg_receiver = &mut *msg_receiver_lock;
+                    msg_receiver.recv().await
+                } => {
                     if let Some(msg) = messages {
                         match msg {
                             Messages::Version{best_height, from_addr} => {
-                                self.process_version_msg(best_height, from_addr).await?;
+                                self.clone().process_version_msg(best_height, from_addr).await?;
                             },
                             Messages::Blocks{blocks, to_addr, height} => {
-                                self.process_blocks_msg(blocks, to_addr, height).await?;
+                                self.clone().process_blocks_msg(blocks, to_addr, height).await?;
                             },
                             Messages::Block{block} => {
-                                self.process_block_msg(block).await?;
+                                self.clone().process_block_msg(block).await?;
                             }
                         }
                     }
                 },
-                event = swarm.select_next_some() => {
-                    if let SwarmEvent::NewListenAddr { address, .. } = event {
-                        println!("Listening on {:?}", address);
+                event = async move{
+                    let mut swarm_lock = swarm_arc.lock().await;
+                    let swarm = &mut *swarm_lock;
+                    swarm_lock.select_next_some().await
+                } => {
+                    match event {
+                        SwarmEvent::NewListenAddr{address, ..} => {
+                            info!("Listening on {:?}", address);
+                        }
+                        SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                            info!("Connected to {:?}", peer_id);
+                        }
+                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                            info!("Disconnected from {:?}", peer_id);
+                        }
+                        SwarmEvent::ListenerClosed { addresses, .. } => {
+                            info!("Listener closed for addresses: {:?}", addresses);
+                        }
+                        SwarmEvent::IncomingConnectionError { local_addr, send_back_addr, error } => {
+                            info!("Incoming connection error (local: {:?}, send back: {:?}): {:?}", local_addr, send_back_addr, error);
+                        }
+                        _ => {
+                            // 其他事件类型，根据需要添加
+                            info!("Unhandled event: {:?}", event);
+                        }
                     }
+                },
+                _ = sleep(Duration::from_secs(7)) => {
+                    continue;
                 }
             }
         }

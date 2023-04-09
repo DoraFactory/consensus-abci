@@ -27,10 +27,10 @@ use libp2p::{
 pub type TokioTcpConfig = GenTcpConfig<Tcp>;
 
 
-static ID_KEYS: Lazy<Keypair> = Lazy::new(Keypair::generate_ed25519);
-static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(ID_KEYS.public()));
-static BLOCK_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("blocks"));
-static TRANX_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("tranxs"));
+pub static ID_KEYS: Lazy<Keypair> = Lazy::new(Keypair::generate_ed25519);
+pub static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(ID_KEYS.public()));
+pub static BLOCK_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("blocks"));
+pub static TRANX_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("tranxs"));
 
 static WALLET_MAP: Lazy<Arc<Mutex<HashMap<String, String>>>> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
@@ -68,6 +68,7 @@ async fn create_swarm(topics: Vec<Topic>, msg_sender: mpsc::UnboundedSender<Mess
         .executor(Box::new(|fut| {
             tokio::spawn(fut);
         })).build();
-
+    
+    info!("Exiting create_swarm...");
     Ok(swarm)
 }
