@@ -3,7 +3,9 @@ use serde::{Serialize, Deserialize};
 
 use tracing::info;
 
-use crate::{ Transaction, utils::{serialize, hash_to_str}};
+
+use crate::{Transaction, utils::{serialize, hash_to_str}};
+
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct BlockHeader {
