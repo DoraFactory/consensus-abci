@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot::Sender as OneShotSender;
 
-use crate::{ProofOfWork, QueryInfo, Transaction};
+use crate::{pow::ProofOfWork, QueryInfo, Transaction};
 use tracing::info;
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{

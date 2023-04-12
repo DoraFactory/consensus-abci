@@ -1,14 +1,14 @@
 mod client_api;
 mod abci_engine;
 
-mod pow;
+mod engines;
 mod wallets;
 mod utils;
 mod error;
 
 pub use client_api::ClientApi;
 pub use abci_engine::Engine;
-pub use pow::*;
+pub use engines::*;
 pub use wallets::*;
 pub use utils::*;
 
