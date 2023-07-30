@@ -40,7 +40,7 @@ async fn send_request(from: &str, to: &str, amount: &str) {
     let client = reqwest::Client::new();
 
     let response = client
-        .get(format!("{}/broadcast_tx", url))
+        .get(format!("{}/broadcast_tx_commit", url))
         .query(&[("from", from), ("to", to), ("amount", amount)])
         .send()
         .await

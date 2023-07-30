@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./consensus/abci-client/Cargo.toml"
+    ]
+}

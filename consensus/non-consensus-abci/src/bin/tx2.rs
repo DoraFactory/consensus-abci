@@ -7,7 +7,7 @@ async fn main() {
     let tx: u64 = 2;
 
     let response = client
-        .get(format!("{}/broadcast_tx", host))
+        .get(format!("{}/broadcast_tx_commit", host))
         .query(&[("tx", tx)])
         .send()
         .await

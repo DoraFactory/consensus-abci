@@ -18,16 +18,20 @@ hex = "0.4.3"
 thiserror = "1"
 once_cell = "1.13.0"
 bs58 = "0.4.0"
-
+base64 = "0.13.0"
 log = "0.4.11"
 futures = "0.3.15"
 eyre = "0.6.8"
 clap = "2.33.3"
 
 # ABCI lib
-tendermint-abci = { version = "0.25.0", features = ["client"] }
-tendermint-proto = "0.25.0"
-
+# tendermint-abci = { version = "0.25.0", features = ["client"] }
+tendermint-abci = {git = "https://github.com/DoraFactory/tendermint-rs", branch = "v0.25.0-dev", features = ["client"]}
+# tendermint-proto = "0.25.0"
+tendermint-proto = {git = "https://github.com/DoraFactory/tendermint-rs", branch = "v0.25.0-dev"}
+# tendermint-rpc = {git = "https://github.com/joneskm/tendermint-rs"}
+tendermint-rpc = {git = "https://github.com/DoraFactory/tendermint-rs"}
+ibc-proto = { git = "https://github.com/joneskm/ibc-proto-rs" }
 
 # pow lib
 anyhow = "1"
