@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot::Sender as OneShotSender;
 use tendermint_proto::Protobuf;
 use crate::{pow::ProofOfWork, QueryInfo, Transaction};
@@ -7,10 +7,16 @@ use tracing::info;
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
     Event, EventAttribute, RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock,
-    RequestInfo, RequestInitChain, RequestQuery, ResponseQuery,
+    RequestInfo, RequestInitChain, RequestQuery, ResponseQuery, ResponseDeliverTx
 };
+use bytes::Bytes;
+use base64::{decode, encode};
+use hex::encode as hex_encode;
+
+use std::time::{SystemTime, UNIX_EPOCH};
 use tendermint_proto::types::Header;
-use tendermint_proto::serializers::bytes;
+use tendermint_proto::version::Consensus;
+use tendermint_proto::google::protobuf::Timestamp;
 use tendermint_rpc::{
     endpoint,
     error::{Error, ErrorDetail},
@@ -23,7 +29,7 @@ pub struct Engine {
     pub app_address: SocketAddr,
     pub rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
     pub last_block_height: i64,
-    pub last_app_hash: Vec<u8>,
+    pub last_app_hash: Bytes,
     pub client: AbciClient,
     pub req_client: AbciClient,
 }
@@ -53,9 +59,10 @@ impl Engine {
         }
     }
 
-    pub async fn run(&mut self, mut rx_output: Receiver<String>) -> eyre::Result<()> {
+    pub async fn run(&mut self, mut rx_output: Receiver<String>, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
         // TODO: 如果高度大于1，那就不init chain
         self.init_chain()?;
+        let deliver_req = deliver_tx.clone();
 
         loop {
             println!("listening and consuming the coming requests....");
@@ -63,7 +70,7 @@ impl Engine {
                 Some(transaction) = rx_output.recv() => {
                     println!("--------------------------------");
                     println!("send transaction and consensus start...");
-                    self.handle_tx(transaction)?;
+                    self.handle_tx(transaction, deliver_req.clone())?;
                     println!("--------------------------------");
 
                 },
@@ -79,7 +86,7 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_tx(&mut self, trans: String) -> eyre::Result<()> {
+    fn handle_tx(&mut self, trans: String, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
         // increment block
         let proposed_block_height = self.last_block_height + 1;
 
@@ -87,7 +94,7 @@ impl Engine {
 
         self.begin_block(proposed_block_height)?;
 
-        self.aggrement_tx(trans)?;
+        self.aggrement_tx(trans, deliver_tx)?;
 
         self.end_block(proposed_block_height)?;
 
@@ -99,7 +106,7 @@ impl Engine {
     }
 
     // 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
-    fn aggrement_tx(&mut self, trans: String) -> eyre::Result<()> {
+    fn aggrement_tx(&mut self, trans: String, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
         // 达到目标难度值，然后打包，将交易deliver
         // step1：先计算达到目标难度
         let pow = ProofOfWork::new(DIFFICULTY);
@@ -108,7 +115,7 @@ impl Engine {
 
         // step2: 得到一个batch区块(此块非blockchain的块，而是一个节点先打包的块，需要交给app对其中的交易进行状态转换)
         // 这里暂时没有写mempool，所以会把发送过来的一笔交易直接打包为块，发送出去
-        self.deliver_tx(trans)
+        self.deliver_tx(trans, deliver_tx)
     }
 
     fn handle_abci_query(
@@ -127,7 +134,7 @@ impl Engine {
         println!("data: {:?}", data);
         // abci client call the `query` abci api
         let resp = self.req_client.query(RequestQuery {
-            data,
+            data: data.into(),
             path: req.path.unwrap(),
             height: req_height as i64,
             prove: req_prove,
@@ -192,12 +199,27 @@ impl Engine {
     // If we wanted to, we could add additional arguments to be forwarded from the Consensus
     // to the App logic on the beginning of each block.
     fn begin_block(&mut self, height: i64) -> eyre::Result<()> {
+        let now = SystemTime::now();
+        let since_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+        let proposer_addr: Vec<u8> = vec![44, 59, 240, 228, 247, 237, 123, 26, 6, 191, 172, 106, 236, 240, 203, 76, 139, 146, 50, 40];
+
         let req = RequestBeginBlock {
             header: Some(Header {
+                version: std::option::Option::Some(Consensus{
+                    block: 11,
+                    app: 0,
+                }),
+                chain_id: "test-chain".to_string(),
+                time: std::option::Option::Some(Timestamp{
+                    seconds: since_epoch.as_secs() as i64,
+                    nanos: since_epoch.subsec_nanos() as i32,
+                }),
                 height: self.last_block_height,
                 // current app hash(对于区块链来说，这里是当前最新的区块哈希)
-                app_hash: self.last_app_hash.clone(),
+                app_hash: self.last_app_hash.to_vec().clone(),
+                proposer_address: proposer_addr,
                 ..Default::default()
+
             }),
             ..Default::default()
         };
@@ -206,14 +228,35 @@ impl Engine {
         Ok(())
     }
 
-    /// Calls the `DeliverTx` hook on the ABCI app.
-    fn deliver_tx(&mut self, tx: String) -> eyre::Result<()> {
-        // println!("deliver的交易传入为:{:?}", tx);
-        // let tx_req = parse_int_to_bytes(tx).unwrap();
 
-        //TODO:
-/*         self.client
-            .deliver_tx(RequestDeliverTx { tx: tx.to_bytes() })?; */
+
+    // TODO: 后续可以增加checkTx，用于存放内存池之前的校验
+
+    /// Calls the `DeliverTx` hook on the ABCI app.
+    fn deliver_tx(&mut self, tx: String, deliver_tx_chan: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
+
+        let data = decode(tx).expect("Failed to decode Base64 data");
+        let tx_bytes = Bytes::from(data);
+
+        let deliver_tx_resp = match self.client.deliver_tx(RequestDeliverTx { tx: tx_bytes }) {
+            Ok(response) => response,
+            Err(err) => {
+                // 处理错误
+                ResponseDeliverTx {
+                    code: 1,
+                    data: Bytes::new(),
+                    log: err.to_string(),
+                    info: "".to_string(),
+                    gas_wanted: 0,
+                    gas_used: 0,
+                    events: vec![],
+                    codespace: "".to_string(),
+                }
+            }
+        };
+        println!("deliver tx的返回消息为{:?}", deliver_tx_resp.clone());
+        deliver_tx_chan.send(deliver_tx_resp);
+
         Ok(())
     }
 

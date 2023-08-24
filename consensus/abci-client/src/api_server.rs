@@ -2,7 +2,7 @@ use crate::{QueryInfo, Transaction};
 
 use eyre::WrapErr;
 use futures::SinkExt;
-use tendermint_proto::{abci::ResponseQuery, crypto::ProofOps};
+use tendermint_proto::{abci::{ResponseQuery, ResponseDeliverTx}, crypto::ProofOps};
 use tendermint_rpc::{
     endpoint,
     error::{Error, ErrorDetail},
@@ -10,8 +10,12 @@ use tendermint_rpc::{
     Code, Order, Response,
 };
 use tokio::spawn;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, Receiver, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneShotSender};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use serde_json::to_vec;
+use super::{EventAttributeJson, EventJson};
 
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -26,16 +30,19 @@ pub struct ClientApi<T> {
     // commonly: 26657 port
     abci_client_address: SocketAddr,
     req: Sender<(OneShotSender<T>, QueryInfo)>,
+    deliver_rx: Arc<Mutex<UnboundedReceiver<ResponseDeliverTx>>>
 }
 
 impl<T: Send + Sync + std::fmt::Debug> ClientApi<T> {
     pub fn new(
         abci_client_address: SocketAddr,
         req: Sender<(OneShotSender<T>, QueryInfo)>,
+        deliver_rx: UnboundedReceiver<ResponseDeliverTx>
     ) -> Self {
         Self {
             abci_client_address,
             req,
+            deliver_rx: Arc::new(Mutex::new(deliver_rx)),
         }
     }
 }
@@ -58,6 +65,8 @@ impl ClientApi<ResponseQuery> {
             .and_then(move |json_request: serde_json::Value| {
                 let tx_abci_queries = self.req.clone();
                 let abci_tx = tx_req.clone();
+                let deliver_rx_resp = self.deliver_rx.clone();
+
                 async move {
                     let method = json_request["method"].as_str().unwrap_or_default();
                     let params = &json_request["params"];
@@ -132,7 +141,7 @@ impl ClientApi<ResponseQuery> {
                             // let result = format!("Hello, World! Your transaction is : {}", transaction);
                             println!("交易数据是{:?}", transaction);
 
-                            // 将整个Transaction结构发送到共识层
+                            // // 将整个Transaction结构发送到共识层
                             if let Err(e) = abci_tx.send(transaction.to_string()).await {
                                 let result = format!("ERROR IN: broadcast_tx_commit: {:?}. Err: {}",transaction, e);
                                 Ok(warp::reply::json(&serde_json::json!({
@@ -141,9 +150,34 @@ impl ClientApi<ResponseQuery> {
                                     "id": json_request["id"]
                                 })))
                             } else {
+                                let mut deliver_rx_guard = deliver_rx_resp.lock().await;
+                                let deliver_resp = deliver_rx_guard.recv().await.unwrap();
+
+                                let events = deliver_resp.clone().events;
+                                let events_json: Vec<EventJson> = events.iter().map(|event| EventJson {
+                                    r#type: event.r#type.clone(),
+                                    attributes: event.attributes.iter().map(|attr| EventAttributeJson {
+                                        key: base64::encode(attr.key.to_vec().as_slice()),
+                                        value: base64::encode(attr.value.to_vec().as_slice()),
+                                        index: attr.index,
+                                    }).collect(),
+                                }).collect();
+
+
                                 Ok(warp::reply::json(&serde_json::json!({
                                     "jsonrpc": "2.0".to_string(),
-                                    "result": transaction,
+                                    "result": {
+                                        "deliver_tx": {
+                                            "code": deliver_resp.code,
+                                            "data": deliver_resp.data,
+                                            "log": deliver_resp.log,
+                                            "info": deliver_resp.info,
+                                            "gas_wanted": deliver_resp.gas_wanted,
+                                            "gas_used": deliver_resp.gas_used,
+                                            "events": events_json,
+                                            "codespace": deliver_resp.codespace,
+                                        },
+                                    },
                                     "id": json_request["id"]
                                 })))
                             }

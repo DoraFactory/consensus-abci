@@ -40,6 +40,21 @@ pub struct TxCommitInfo {
 }
 
 
+// 定义事件属性结构
+#[derive(Serialize, Deserialize)]
+pub struct EventAttributeJson {
+    key: String,
+    value: String,
+    index: bool,
+}
+
+// 定义事件结构
+#[derive(Serialize, Deserialize)]
+pub struct EventJson {
+    r#type: String,
+    attributes: Vec<EventAttributeJson>,
+}
+
 impl Transaction {
     // 序列化为 Vec<u8>
     pub fn to_bytes(&self) -> Vec<u8> {

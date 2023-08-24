@@ -1,0 +1,35 @@
+network_type: "testnet"
+
+mainnet:
+  node: 
+    rpc_node: "https://vota-rpc.dorafactory.org/" 
+    accelerated_node: "" # https://dex-asiapacific.binance.org/api/v1
+    api_server_endpoint: "https://vota-rest.dorafactory.org"
+    explorer_api_endpoint: "" # https://explorer.binance.org/api/v1
+  database:
+    host: "mintscan"
+    port: 5432
+    user: "mintscan"
+    password: "mintscan"
+    table: "mintscan"
+  web:
+    port: 5000
+  market:
+    coingecko_endpoint: ""
+
+testnet:
+  node: 
+    rpc_node: "https://vota-rpc.dorafactory.org/" 
+    accelerated_node: "" # https://dex-asiapacific.binance.org/api/v1
+    api_server_endpoint: "https://vota-rest.dorafactory.org"
+    explorer_api_endpoint: "" # https://explorer.binance.org/api/v1
+  database:
+    host: "mintscan"
+    port: 5432
+    user: "mintscan"
+    password: "mintscan"
+    table: "mintscan"
+  web:
+    port: 5000
+  market:
+    coingecko_endpoint: ""
