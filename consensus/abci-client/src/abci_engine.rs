@@ -1,23 +1,35 @@
 use std::net::SocketAddr;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
 use tokio::sync::oneshot::Sender as OneShotSender;
-
+use tendermint_proto::Protobuf;
 use crate::{pow::ProofOfWork, QueryInfo, Transaction};
 use tracing::info;
 use tendermint_abci::{Client as AbciClient, ClientBuilder};
 use tendermint_proto::abci::{
     Event, EventAttribute, RequestBeginBlock, RequestDeliverTx, RequestEcho, RequestEndBlock,
-    RequestInfo, RequestInitChain, RequestQuery, ResponseQuery,
+    RequestInfo, RequestInitChain, RequestQuery, ResponseQuery, ResponseDeliverTx
 };
-use tendermint_proto::types::Header;
+use bytes::Bytes;
+use base64::{decode, encode};
+use hex::encode as hex_encode;
 
+use std::time::{SystemTime, UNIX_EPOCH};
+use tendermint_proto::types::Header;
+use tendermint_proto::version::Consensus;
+use tendermint_proto::google::protobuf::Timestamp;
+use tendermint_rpc::{
+    endpoint,
+    error::{Error, ErrorDetail},
+    request::Wrapper as RequestWrapper,
+    Code, Order, Response,
+};
 pub const DIFFICULTY: usize = 10;
 
 pub struct Engine {
     pub app_address: SocketAddr,
     pub rx_abci_queries: Receiver<(OneShotSender<ResponseQuery>, QueryInfo)>,
     pub last_block_height: i64,
-    pub last_app_hash: Vec<u8>,
+    pub last_app_hash: Bytes,
     pub client: AbciClient,
     pub req_client: AbciClient,
 }
@@ -32,7 +44,6 @@ impl Engine {
 
         let resp_info = echo_client.info(RequestInfo::default()).unwrap();
         let last_block_height = resp_info.last_block_height;
-        println!("当前区块高度为:{:?}", last_block_height);
         let last_app_hash = resp_info.last_block_app_hash;
 
         // Instantiate a new client to not be locked in an Info connection
@@ -48,8 +59,10 @@ impl Engine {
         }
     }
 
-    pub async fn run(&mut self, mut rx_output: Receiver<Transaction>) -> eyre::Result<()> {
+    pub async fn run(&mut self, mut rx_output: Receiver<String>, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
+        // TODO: 如果高度大于1，那就不init chain
         self.init_chain()?;
+        let deliver_req = deliver_tx.clone();
 
         loop {
             println!("listening and consuming the coming requests....");
@@ -57,7 +70,7 @@ impl Engine {
                 Some(transaction) = rx_output.recv() => {
                     println!("--------------------------------");
                     println!("send transaction and consensus start...");
-                    self.handle_count(transaction)?;
+                    self.handle_tx(transaction, deliver_req.clone())?;
                     println!("--------------------------------");
 
                 },
@@ -73,7 +86,7 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_count(&mut self, trans: Transaction) -> eyre::Result<()> {
+    fn handle_tx(&mut self, trans: String, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
         // increment block
         let proposed_block_height = self.last_block_height + 1;
 
@@ -81,7 +94,7 @@ impl Engine {
 
         self.begin_block(proposed_block_height)?;
 
-        self.aggrement_tx(trans)?;
+        self.aggrement_tx(trans, deliver_tx)?;
 
         self.end_block(proposed_block_height)?;
 
@@ -93,16 +106,16 @@ impl Engine {
     }
 
     // 这里主要是处理共识的部分，如果要加区块链的共识，就修改这部分的逻辑
-    fn aggrement_tx(&mut self, trans: Transaction) -> eyre::Result<()> {
+    fn aggrement_tx(&mut self, trans: String, deliver_tx: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
         // 达到目标难度值，然后打包，将交易deliver
         // step1：先计算达到目标难度
         let pow = ProofOfWork::new(DIFFICULTY);
         println!("创建了一个pow的难题,现在开始计算");
-        pow.run(&trans);
+        pow.run(trans.clone());
 
         // step2: 得到一个batch区块(此块非blockchain的块，而是一个节点先打包的块，需要交给app对其中的交易进行状态转换)
         // 这里暂时没有写mempool，所以会把发送过来的一笔交易直接打包为块，发送出去
-        self.deliver_tx(trans)
+        self.deliver_tx(trans, deliver_tx)
     }
 
     fn handle_abci_query(
@@ -111,15 +124,21 @@ impl Engine {
         req: QueryInfo,
     ) -> eyre::Result<()> {
         let req_height = req.height.unwrap_or(0);
-        let req_prove = req.prove.unwrap_or(false);
+        let req_prove = req.prove;
 
+        /* 
+        Incoming request: Request { value: Some(Query(RequestQuery { data: b"\n-cosmos1syavy2npfyt9tcncdtsdzf7kny9lh777pahuux", path: "/cosmos.bank.v1beta1.Query/AllBalances", height: 0, prove: false })) }
+        Incoming request: Request { value: Some(Query(RequestQuery { data: b"0A2D636F736D6F73317379617679326E706679743974636E63647473647A66376B6E79396C68373737706168757578", path: "/cosmos.bank.v1beta1.Query/AllBalances", height: 0, prove: false })) }
+         */
+        let data = hex::decode(req.data).unwrap();
+        println!("data: {:?}", data);
         // abci client call the `query` abci api
         let resp = self.req_client.query(RequestQuery {
-            data: req.data.into(),
-            path: req.path,
+            data: data.into(),
+            path: req.path.unwrap(),
             height: req_height as i64,
             prove: req_prove,
-        })?;
+        })?; 
 
         // 通过一个单通道单消费者(oneshoter)向用户返回响应结果
         println!("the received response is: {:?}", resp);
@@ -130,16 +149,11 @@ impl Engine {
         };
         println!("resp key为:{:?}", resp_key);
 
-        let resp_value = match std::str::from_utf8(&resp.value) {
-            Ok(s) => s,
-            Err(e) => panic!("Failed to intepret key as UTF-8: {e}"),
-        };
-
-        println!("resp value为:{:?}", resp_value);
+        println!("resp value为 :{:?}", resp.clone().value);
 
         if let Err(err) = tx_query.send(resp) {
             eyre::bail!("{:?}", err);
-        }
+        } 
 
         Ok(())
     }
@@ -148,30 +162,35 @@ impl Engine {
 impl Engine {
     /// Calls the `InitChain` hook on the app, ignores "already initialized" errors.
     pub fn init_chain(&mut self) -> eyre::Result<()> {
-        println!("start init chain request");
-        let mut client = ClientBuilder::default().connect(&self.app_address).unwrap();
-        //TODO: 后续需要做改动，把初始化账户的功能放在这里（钱包和genesis account的功能是应该放在共识层的）
-        /*         match client.init_chain(Default::default()) {
-        /*             Ok(resp) => {
-                        println!("Init chain successfully! Hello ABCI.");
-                        self.last_app_hash = resp.app_hash
-                    } */
-                    Ok(_) => {
-                        println!("Init chain successfully! Hello ABCI.")
-                    }
-                    Err(err) => {
-                        // ignore errors about the chain being uninitialized
-                        if err.to_string().contains("already initialized") {
-                            log::warn!("{}", err);
-                            return Ok(());
+        // 如果之前已经启动过，那么不会进行初始化
+        if self.last_block_height > 1 {
+            println!("start from the exist block data.....");
+            println!("当前区块高度为:{:?}", self.last_block_height);
+        } else {
+            let mut client = ClientBuilder::default().connect(&self.app_address).unwrap();
+            println!("start init chain request");
+            //TODO: 后续需要做改动，把初始化账户的功能放在这里（钱包和genesis account的功能是应该放在共识层的）
+            /*         match client.init_chain(Default::default()) {
+            /*             Ok(resp) => {
+                            println!("Init chain successfully! Hello ABCI.");
+                            self.last_app_hash = resp.app_hash
+                        } */
+                        Ok(_) => {
+                            println!("Init chain successfully! Hello ABCI.")
                         }
-                        eyre::bail!(err)
-                    }
-                };  */
-
-        // let resp = client.init_chain();
-        // println!("{:?}", resp);
-
+                        Err(err) => {
+                            // ignore errors about the chain being uninitialized
+                            if err.to_string().contains("already initialized") {
+                                log::warn!("{}", err);
+                                return Ok(());
+                            }
+                            eyre::bail!(err)
+                        }
+                    };  */
+    
+            // let resp = client.init_chain();
+            // println!("{:?}", resp);
+        }
         Ok(())
     }
 
@@ -180,12 +199,27 @@ impl Engine {
     // If we wanted to, we could add additional arguments to be forwarded from the Consensus
     // to the App logic on the beginning of each block.
     fn begin_block(&mut self, height: i64) -> eyre::Result<()> {
+        let now = SystemTime::now();
+        let since_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+        let proposer_addr: Vec<u8> = vec![44, 59, 240, 228, 247, 237, 123, 26, 6, 191, 172, 106, 236, 240, 203, 76, 139, 146, 50, 40];
+
         let req = RequestBeginBlock {
             header: Some(Header {
+                version: std::option::Option::Some(Consensus{
+                    block: 11,
+                    app: 0,
+                }),
+                chain_id: "test-chain".to_string(),
+                time: std::option::Option::Some(Timestamp{
+                    seconds: since_epoch.as_secs() as i64,
+                    nanos: since_epoch.subsec_nanos() as i32,
+                }),
                 height: self.last_block_height,
                 // current app hash(对于区块链来说，这里是当前最新的区块哈希)
-                app_hash: self.last_app_hash.clone(),
+                app_hash: self.last_app_hash.to_vec().clone(),
+                proposer_address: proposer_addr,
                 ..Default::default()
+
             }),
             ..Default::default()
         };
@@ -194,13 +228,35 @@ impl Engine {
         Ok(())
     }
 
-    /// Calls the `DeliverTx` hook on the ABCI app.
-    fn deliver_tx(&mut self, tx: Transaction) -> eyre::Result<()> {
-        // println!("deliver的交易传入为:{:?}", tx);
-        // let tx_req = parse_int_to_bytes(tx).unwrap();
 
-        self.client
-            .deliver_tx(RequestDeliverTx { tx: tx.to_bytes() })?;
+
+    // TODO: 后续可以增加checkTx，用于存放内存池之前的校验
+
+    /// Calls the `DeliverTx` hook on the ABCI app.
+    fn deliver_tx(&mut self, tx: String, deliver_tx_chan: UnboundedSender<ResponseDeliverTx>) -> eyre::Result<()> {
+
+        let data = decode(tx).expect("Failed to decode Base64 data");
+        let tx_bytes = Bytes::from(data);
+
+        let deliver_tx_resp = match self.client.deliver_tx(RequestDeliverTx { tx: tx_bytes }) {
+            Ok(response) => response,
+            Err(err) => {
+                // 处理错误
+                ResponseDeliverTx {
+                    code: 1,
+                    data: Bytes::new(),
+                    log: err.to_string(),
+                    info: "".to_string(),
+                    gas_wanted: 0,
+                    gas_used: 0,
+                    events: vec![],
+                    codespace: "".to_string(),
+                }
+            }
+        };
+        println!("deliver tx的返回消息为{:?}", deliver_tx_resp.clone());
+        deliver_tx_chan.send(deliver_tx_resp);
+
         Ok(())
     }
 

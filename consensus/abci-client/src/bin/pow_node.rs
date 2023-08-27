@@ -2,7 +2,7 @@ use eyre::{Result, WrapErr};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, unbounded_channel};
 
 use pow_abci::{ClientApi, Engine};
 
@@ -39,6 +39,8 @@ async fn run() -> Result<()> {
     // 用于和共识的ABCI接口进行通信的mpsc channel
     let (tx_abci_req, mut rx_abci_queries) = channel(CHANNEL_CAPACITY);
 
+    let (deliver_tx, mut deliver_rx) = unbounded_channel();
+
     //TODO: Add genesis account
     // let _genesis_account = matches.value_of("genesis_account").unwrap();
     // expose the client port 26657
@@ -48,7 +50,7 @@ async fn run() -> Result<()> {
         let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
         let port = 26657;
         let abci_client_address = SocketAddr::new(ip, port);
-        let client_api = ClientApi::new(abci_client_address, tx_abci_req);
+        let client_api = ClientApi::new(abci_client_address, tx_abci_req, deliver_rx);
         println!("Startd ABCI client listen on: {:?}", &abci_client_address);
         warp::serve(client_api.get_routes(tx_req)).run(abci_client_address).await
     });
@@ -64,7 +66,7 @@ async fn run() -> Result<()> {
     let mut engine = Engine::new(app_address, rx_abci_queries);
 
     // engine.run(rx_req).await?;
-    engine.run(rx_req).await?;
+    engine.run(rx_req, deliver_tx).await?;
 
     Ok(())
 

@@ -38,20 +38,20 @@ impl ClientApi<ResponseQuery> {
         self,
         tx_req: Sender<u64>,
     ) -> impl Filter<Extract = impl warp::Reply, Error = Rejection> + Clone {
-        let route_broadcast_tx = warp::path("broadcast_tx")
+        let route_broadcast_tx_commit = warp::path("broadcast_tx_commit")
             .and(warp::query::<BroadcastTx>())
             .and_then( move |req: BroadcastTx| {
                 let abci_tx = tx_req.clone();
                 async move {
-                    log::warn!("broadcast_tx: {:?}", req);
+                    log::warn!("broadcast_tx_commit: {:?}", req);
     
                     println!("收到了tx请求");
                     println!("{:?}", req.tx.clone());
     
                     if let Err(e) = abci_tx.send(req.tx.clone().parse::<u64>().unwrap()).await {
-                        Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx: {:?}. Err: {}", req, e))
+                        Ok::<_, Rejection>(format!("ERROR IN: broadcast_tx_commit: {:?}. Err: {}", req, e))
                     }else{
-                        Ok::<_, Rejection>(format!("broadcast_tx: {:?}", req))
+                        Ok::<_, Rejection>(format!("broadcast_tx_commit: {:?}", req))
                     }
                 }
             });
@@ -75,6 +75,6 @@ impl ClientApi<ResponseQuery> {
                 }
             });
 
-        route_broadcast_tx.or(route_abci_query)
+        route_broadcast_tx_commit.or(route_abci_query)
     }
 }

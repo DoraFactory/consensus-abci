@@ -1,4 +1,4 @@
-mod client_api;
+mod api_server;
 mod abci_engine;
 
 mod engines;
@@ -6,7 +6,7 @@ mod wallets;
 mod utils;
 mod error;
 
-pub use client_api::ClientApi;
+pub use api_server::ClientApi;
 pub use abci_engine::Engine;
 pub use engines::*;
 pub use wallets::*;
@@ -14,6 +14,7 @@ pub use utils::*;
 
 use serde::{Deserialize, Serialize};
 use bincode::{serialize, deserialize};
+use tendermint_proto::{abci::ResponseQuery, crypto::{ProofOps, ProofOp}};
 // define the request type
 
 // https://github.com/tendermint/tendermint/blob/main/spec/abci/abci.md#delivertx-1
@@ -27,10 +28,31 @@ pub struct Transaction {
 // https://github.com/tendermint/tendermint/blob/main/spec/abci/abci.md#query-1
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QueryInfo {
-    path: String,
-    data: String,
-    height: Option<usize>,
-    prove: Option<bool>,
+    path: Option<String>,
+    data: Vec<u8>,
+    height: Option<u64>,
+    prove: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxCommitInfo {
+    
+}
+
+
+// 定义事件属性结构
+#[derive(Serialize, Deserialize)]
+pub struct EventAttributeJson {
+    key: String,
+    value: String,
+    index: bool,
+}
+
+// 定义事件结构
+#[derive(Serialize, Deserialize)]
+pub struct EventJson {
+    r#type: String,
+    attributes: Vec<EventAttributeJson>,
 }
 
 impl Transaction {

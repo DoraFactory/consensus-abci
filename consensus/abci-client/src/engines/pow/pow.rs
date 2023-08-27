@@ -4,7 +4,7 @@ use std::ops::Shl;
 use bigint::U256;
 use crate::{utils::{serialize, hash_to_u8, hash_to_str}, Transaction};
 const MAX_NONCE: usize = usize::MAX;
-
+use tendermint_rpc::endpoint::broadcast::tx_commit::Request;
 pub struct ProofOfWork {
     target: U256,
 }
@@ -19,11 +19,11 @@ impl ProofOfWork {
         }
     }
 
-    pub fn run(&self, trans: &Transaction) -> (usize, String){
+    pub fn run(&self, trans: String) -> (usize, String){
         let mut nonce = 0;
         let mut hash: String = String::from("");
         while nonce < MAX_NONCE {
-            if let pre_hash = Self::prepare_data(trans, nonce) {
+            if let pre_hash = Self::prepare_data(trans.clone(), nonce) {
                 let mut hash_u: [u8; 32] = [0; 32];
                 hash_to_u8(&pre_hash,&mut hash_u);
                 let pre_hash_int = U256::from(hash_u);
@@ -41,7 +41,7 @@ impl ProofOfWork {
         (nonce, hash)
     }
 
-    fn prepare_data(tx: &Transaction, nonce: usize) -> Vec<u8> {
+    fn prepare_data(tx: String, nonce: usize) -> Vec<u8> {
         let pre_data = (tx, nonce);
         serialize(&pre_data).unwrap()
     }
