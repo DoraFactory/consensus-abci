@@ -1,8 +1,12 @@
 use eyre::{Result, WrapErr};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::{fs, path::PathBuf, time::Duration};
+use std::path::Path;
+use std::env;
 
 use clap::{crate_name, crate_version, App, AppSettings, ArgMatches, SubCommand};
 use tokio::sync::mpsc::{channel, Receiver, unbounded_channel};
+use tendermint_config::NodeKey;
 
 use pow_abci::{ClientApi, Engine};
 
@@ -16,8 +20,15 @@ async fn main() -> Result<()> {
         .args_from_usage("-v... 'Sets the level of verbosity")
         .subcommand(
             SubCommand::with_name("run")
+                .about("Start the consensus node"),
             //TODO:
             // .args_from_usage("--port=<string> 'This is a abci client server'")
+            //TODO: show node id of p2p
+            
+        )
+        .subcommand(
+            SubCommand::with_name("show-node-id")
+                .about("Show this node's ID"),
         )
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .get_matches();
@@ -25,6 +36,7 @@ async fn main() -> Result<()> {
     match matches.subcommand() {
         ("run", Some(sub_matches)) => run().await?,
         // ("run", Some(sub_matches)) => run(sub_matches).await?,
+        ("show-node-id", Some(_)) => show_node_id().await,
         _ => unreachable!(),
     }
     Ok(())
@@ -72,3 +84,29 @@ async fn run() -> Result<()> {
 
 }
 
+
+/// TODO: Read a fixture file from the directory
+/// use for future
+fn read_fixture(name: &str) -> String {
+    // TODO: change the default path
+    // DefaultConsensusDir = .gaia-rs
+    // defaultConfigDir = config
+    // defaultConfigFileName  = "config.toml"
+	// defaultGenesisJSONName = "genesis.json"
+	// defaultPrivValKeyName   = "priv_validator_key.json"
+	// defaultPrivValStateName = "priv_validator_state.json"
+	// defaultNodeKeyName  = "node_key.json"
+	// defaultAddrBookName = "addrbook.json"
+    fs::read_to_string(PathBuf::from("~/.gaia-rs/config/").join(name)).unwrap()
+}
+
+
+async fn show_node_id(){
+    let mut home_dir = env::home_dir().expect("Failed to get home directory");
+    home_dir.push(".gaia-rs/config/node_key.json");
+
+    let node_key: NodeKey = NodeKey::load_json_file(&home_dir).unwrap();
+    let node_id = node_key.node_id().to_string();
+    
+    println!("Node ID: {:?}", node_id.clone())
+}

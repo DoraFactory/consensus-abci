@@ -3100,6 +3100,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tendermint-abci 0.27.0",
+ "tendermint-config 0.27.0",
  "tendermint-proto 0.27.0",
  "tendermint-rpc",
  "thiserror",
@@ -4137,6 +4138,33 @@ dependencies = [
 
 [[package]]
 name = "tendermint"
+version = "0.27.0"
+source = "git+https://github.com/DoraFactory/tendermint-rs?branch=v0.27.x#ff01811090fa4a4b9ef07903d05e9c5c276746f1"
+dependencies = [
+ "bytes",
+ "ed25519 1.5.3",
+ "ed25519-dalek",
+ "flex-error",
+ "futures",
+ "num-traits",
+ "once_cell",
+ "prost 0.11.9",
+ "prost-types 0.11.9",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_repr",
+ "sha2 0.9.9",
+ "signature 1.6.4",
+ "subtle",
+ "subtle-encoding",
+ "tendermint-proto 0.27.0",
+ "time 0.3.27",
+ "zeroize",
+]
+
+[[package]]
+name = "tendermint"
 version = "0.33.0"
 source = "git+https://github.com/DoraFactory/tendermint-rs#c2b5c9e01eab1c740598aa14375a7453f3bfa436"
 dependencies = [
@@ -4190,13 +4218,26 @@ dependencies = [
 
 [[package]]
 name = "tendermint-config"
+version = "0.27.0"
+source = "git+https://github.com/DoraFactory/tendermint-rs?branch=v0.27.x#ff01811090fa4a4b9ef07903d05e9c5c276746f1"
+dependencies = [
+ "flex-error",
+ "serde",
+ "serde_json",
+ "tendermint 0.27.0",
+ "toml",
+ "url",
+]
+
+[[package]]
+name = "tendermint-config"
 version = "0.33.0"
 source = "git+https://github.com/DoraFactory/tendermint-rs#c2b5c9e01eab1c740598aa14375a7453f3bfa436"
 dependencies = [
  "flex-error",
  "serde",
  "serde_json",
- "tendermint",
+ "tendermint 0.33.0",
  "toml",
  "url",
 ]
@@ -4305,8 +4346,8 @@ dependencies = [
  "serde_json",
  "subtle",
  "subtle-encoding",
- "tendermint",
- "tendermint-config",
+ "tendermint 0.33.0",
+ "tendermint-config 0.33.0",
  "tendermint-proto 0.33.0",
  "thiserror",
  "time 0.3.27",
